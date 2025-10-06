@@ -172,10 +172,21 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
   };
 
   const handleLetterContainerPress = () => {
-    // Si es dispositivo secundario, no hacer nada
+    // 1. Si es dispositivo ESCLAVO (y no freeMode)
     if (!config.isMasterDevice && !config.freeMode) {
-      return;
-    }    
+      // Solo funciona en waiting para ir a scoring
+      if (gameMode === 'waiting') {
+        if (config.paperMode) {
+          setGameMode('offlineScoring');
+        } else {
+          setGameMode('scoring');
+        }
+      }
+      return; // ← SALIR AQUÍ, no ejecutar el resto
+    }
+    
+    // 2. Si llegamos aquí, es MAESTRO o freeMode
+    // → TODO EL CÓDIGO ACTUAL SE MANTIENE IGUAL
     if (gameMode === 'waiting') {
       startTimer();
     } else if (gameMode === 'playing') {
@@ -265,13 +276,13 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     );
   };
 
-  const updateAnswer = (index: number, text: string) => {
-    if (gameMode === 'playing') {
-      const newAnswers = [...answers];
-      newAnswers[index] = text;
-      setAnswers(newAnswers);
-    }
-  };
+const updateAnswer = (index: number, text: string) => {
+  if (gameMode === 'playing' || (gameMode === 'waiting' && !config.isMasterDevice)) {
+    const newAnswers = [...answers];
+    newAnswers[index] = text;
+    setAnswers(newAnswers);
+  }
+};
 
   const updateScore = (index: number, score: number) => {
     const newScores = [...scores];
@@ -473,6 +484,12 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
   };
 
   const getContainerColor = (): string => {
+    // Esclavo en waiting → Naranja
+    if (!config.isMasterDevice && !config.freeMode && gameMode === 'waiting') {
+      return '#FF8C00';
+    }
+    
+    // Resto de casos (maestro)
     if (gameMode === 'waiting') return '#8B0000';
     if (gameMode === 'playing') return '#228B22';
     if (gameMode === 'scoring' || gameMode === 'offlineScoring') return '#FF8C00';
@@ -495,18 +512,27 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
         style={[
           styles.letterContainer, 
           { backgroundColor: getContainerColor() },
-          !config.isMasterDevice && !config.freeMode && styles.letterContainerDisabled
+          //!config.isMasterDevice && !config.freeMode && styles.letterContainerDisabled
         ]}
         onPress={handleLetterContainerPress}
-        disabled={!config.isMasterDevice && !config.freeMode}
+        //disabled={!config.isMasterDevice && !config.freeMode}
       >
         {(config.isMasterDevice || config.freeMode) && <Text style={styles.letter}>{currentLetter}</Text>}
         {gameMode === 'waiting' && (
-          <Text style={styles.statusText}>
-            {(config.isMasterDevice || config.freeMode)
-              ? 'PULSA PARA COMENZAR' 
-              : 'LA LETRA Y EL TEMPORIZADOR SÓLO SE MOSTRARÁN EN EL DISPOSITIVO PRINCIPAL'}
-          </Text>
+          <>
+            {(config.isMasterDevice || config.freeMode) ? (
+              <Text style={styles.statusText}>PULSA PARA COMENZAR</Text>
+            ) : (
+              <>
+                <Text style={[styles.statusText, { fontSize: 14, textAlign: 'center' }]}>
+                  LA LETRA Y EL TEMPORIZADOR SÓLO SE MOSTRARÁN EN EL DISPOSITIVO PRINCIPAL
+                </Text>
+                <Text style={[styles.statusText, { marginTop: 12, fontSize: 14, textAlign: 'center' }]}>
+                  PULSA AQUÍ PARA INTRODUCIR LAS PUNTUACIONES CUANDO ACABE EL TIEMPO
+                </Text>
+              </>
+            )}
+          </>
         )}
         {gameMode === 'playing' && (
           <Text style={styles.statusText}>PULSA PARA TERMINAR</Text>
@@ -642,14 +668,17 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
                   )}
                 </View>
                 
-                {!config.paperMode && !config.freeMode && (gameMode === 'waiting' || gameMode === 'playing') && (
-                  <TextInput
-                    style={styles.answerInputFlat}
-                    value={answers[index]}
-                    onChangeText={(text) => updateAnswer(index, text)}
-                    editable={gameMode === 'playing'}
-                  />
-                )}
+{!config.paperMode && !config.freeMode && (gameMode === 'waiting' || gameMode === 'playing') && (
+  <TextInput
+    style={styles.answerInputFlat}
+    value={answers[index]}
+    onChangeText={(text) => updateAnswer(index, text)}
+    editable={
+      gameMode === 'playing' || 
+      (gameMode === 'waiting' && !config.isMasterDevice)
+    }
+  />
+)}
                 
                 {gameMode === 'scoring' && !config.paperMode && (
                   <Text style={styles.answerTextFlat}>
