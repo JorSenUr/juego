@@ -513,4 +513,4 @@ class ConnectionManager {
 }
 
 // Singleton
-export const connectionManager = new ConnectionManager();
+export const connectionManager = new ConnectionManager(); 
