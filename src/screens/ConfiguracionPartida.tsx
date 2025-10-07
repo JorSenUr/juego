@@ -12,6 +12,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
+import { connectionManager } from '../utils/connectionManager';
 
 interface ConfiguracionPartidaProps {
   navigate: (screen: 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida', options?: { from?: 'ConfiguracionPartida' }) => void;
