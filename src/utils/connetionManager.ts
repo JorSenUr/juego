@@ -140,66 +140,75 @@ class ConnectionManager {
   }
 
   // ========== SERVIDOR (MAESTRO) ==========
-  async startServer(playerName: string): Promise<boolean> {
+    async startServer(playerName: string): Promise<boolean> {
     try {
-      const hasPermissions = await this.requestPermissions();
-      if (!hasPermissions) {
+        const hasPermissions = await this.requestPermissions();
+        if (!hasPermissions) {
         throw new Error('Permisos Bluetooth denegados');
-      }
+        }
 
-      this.isServer = true;
-      this.myName = playerName;
-      this.gameState = 'waiting';
-      
-      // Añadirse a sí mismo como primer jugador
-      this.connectedPlayers.set(playerName, null);
-      
-      const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-      if (!enabled) {
+        this.isServer = true;
+        this.myName = playerName;
+        this.gameState = 'waiting';
+        
+        // Añadirse a sí mismo como primer jugador
+        this.connectedPlayers.set(playerName, null);
+        
+        const enabled = await RNBluetoothClassic.isBluetoothEnabled();
+        if (!enabled) {
         await RNBluetoothClassic.requestBluetoothEnabled();
-      }
+        }
 
-      console.log('✅ Servidor iniciado:', playerName);
-      return true;
+        // Nota: El dispositivo debe estar emparejado previamente
+        // Los esclavos lo encontrarán en su lista de dispositivos emparejados
+
+        console.log('✅ Servidor iniciado:', playerName);
+        return true;
     } catch (error) {
-      console.error('❌ Error al iniciar servidor:', error);
-      return false;
+        console.error('❌ Error al iniciar servidor:', error);
+        return false;
     }
-  }
+    }
 
   // ========== CLIENTE (ESCLAVO) ==========
   async scanForDevices(): Promise<Array<{ name: string; address: string; playersCount: number }>> {
     try {
-      const hasPermissions = await this.requestPermissions();
-      if (!hasPermissions) {
+        const hasPermissions = await this.requestPermissions();
+        if (!hasPermissions) {
         throw new Error('Permisos Bluetooth denegados');
-      }
+        }
 
-      const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-      if (!enabled) {
+        const enabled = await RNBluetoothClassic.isBluetoothEnabled();
+        if (!enabled) {
         await RNBluetoothClassic.requestBluetoothEnabled();
-      }
+        }
 
-      // Escanear dispositivos disponibles
-      const unpaired = await RNBluetoothClassic.startDiscovery();
-      const paired = await RNBluetoothClassic.getBondedDevices();
-      
-      const allDevices = [...paired, ...unpaired];
-      
-      // Filtrar solo dispositivos con nombre "Scattergories"
-      const scattergoriesDevices = allDevices
-        .filter(device => device.name && device.name.includes('Scattergories'))
-        .map(device => ({
-          name: device.name || 'Desconocido',
-          address: device.address,
-          playersCount: 1, // TODO: Obtener del dispositivo real
+        // Primero escanear dispositivos emparejados (más rápido y fiable)
+        const paired = await RNBluetoothClassic.getBondedDevices();
+        
+        // Intentar descubrir nuevos dispositivos también (opcional)
+        let unpaired: BluetoothDevice[] = [];
+        try {
+        unpaired = await RNBluetoothClassic.startDiscovery();
+        } catch (discoveryError) {
+        console.warn('⚠️ No se pudieron descubrir nuevos dispositivos, usando solo emparejados');
+        }
+        
+        const allDevices = [...paired, ...unpaired];
+        
+        // Retornar todos los dispositivos emparejados
+        // (asumimos que si están emparejados, es porque quieren jugar)
+        const devices = allDevices.map(device => ({
+        name: device.name || device.address,
+        address: device.address,
+        playersCount: 1, // Por ahora siempre 1 (maestro solo)
         }));
 
-      console.log('📱 Dispositivos encontrados:', scattergoriesDevices.length);
-      return scattergoriesDevices;
+        console.log('📱 Dispositivos encontrados:', devices.length);
+        return devices;
     } catch (error) {
-      console.error('❌ Error al escanear:', error);
-      return [];
+        console.error('❌ Error al escanear:', error);
+        return [];
     }
   }
 
@@ -290,22 +299,28 @@ class ConnectionManager {
   private handlePlayerJoined(playerName: string, device: BluetoothDevice) {
     // Si el juego está en waiting, añadir directamente
     if (this.gameState === 'waiting') {
-      this.connectedDevices.push(device);
-      this.connectedPlayers.set(playerName, device);
-      
-      // Empezar a escuchar mensajes de este jugador
-      this.startListeningForMessages(device, playerName);
-      
-      // Enviar lista actualizada a todos
-      this.broadcastPlayersList();
-      
-      console.log('✅ Jugador añadido:', playerName);
+        // Verificar que no esté ya conectado (evitar duplicados)
+        if (this.connectedPlayers.has(playerName)) {
+        console.log('⚠️ Jugador ya conectado:', playerName);
+        return;
+        }
+        
+        this.connectedDevices.push(device);
+        this.connectedPlayers.set(playerName, device);
+        
+        // Empezar a escuchar mensajes de este jugador
+        this.startListeningForMessages(device, playerName);
+        
+        // Enviar lista actualizada a todos
+        this.broadcastPlayersList();
+        
+        console.log('✅ Jugador añadido:', playerName);
     } else {
-      // Si está jugando o puntuando, guardar en cola
-      if (!this.pendingReconnections.includes(playerName)) {
+        // Si está jugando o puntuando, guardar en cola
+        if (!this.pendingReconnections.includes(playerName)) {
         this.pendingReconnections.push(playerName);
         console.log('⏳ Reconexión pendiente:', playerName);
-      }
+        }
     }
   }
 
