@@ -41,7 +41,15 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
   const [bluetoothName, setBluetoothName] = useState<string>(config.playerNames[0] || 'Nombre');
   // =====================================================
   
-
+  // Cleanup al desmontar
+  useEffect(() => {
+    return () => {
+      // Si salimos de la pantalla, desconectar
+      if (userRole !== 'none') {
+        connectionManager.disconnect();
+      }
+    };
+  }, [userRole]);
 
   // ========== FUNCIONES MODO ONLINE ==========
   const toggleOnlineMode = () => {
@@ -55,36 +63,120 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     }
   };
 
-  const handleInitiarPartida = () => {
-    setUserRole('master');
-    // Mock: añadirse a sí mismo como primer jugador
-    setConnectedPlayers([bluetoothName]);
-    // TODO: Aquí iniciaremos Bluetooth server
+  const handleInitiarPartida = async () => {
+    // Escuchar eventos de conexión antes de iniciar el servidor
+    connectionManager.onEvent((event) => {
+      if (event.type === 'PLAYERS_LIST_UPDATE') {
+        console.log('📡 Lista de jugadores actualizada:', event.data.players);
+        setConnectedPlayers(event.data.players);
+      }
+    });
+
+    const success = await connectionManager.startServer(bluetoothName);
+
+    if (success) {
+      setUserRole('master');
+      setConnectedPlayers([bluetoothName]);
+      setOnlineMode(true); // 🔧 asegura que el modo online esté activo
+      await updateConfig({ isMasterDevice: true });
+
+      console.log('✅ Servidor iniciado');
+    } else {
+      Alert.alert(
+        'Error',
+        'No se pudieron obtener permisos de Bluetooth o activar Bluetooth.',
+        [{ text: 'OK' }]
+      );
+    }
   };
 
-  const handleUnirsePartida = () => {
-    // TODO: Aquí escanearemos partidas disponibles
-    // Por ahora, simulamos unirse directamente
-    setUserRole('slave');
-    setConnectedPlayers(['Pedro (organizador)', bluetoothName]);
+  const handleUnirsePartida = async () => {
+    // Evitar búsqueda si ya estamos conectados
+    if (userRole !== 'none') {
+      console.log('🔒 Ya conectado, se ignora nueva búsqueda.');
+      return;
+    }
+
+    const devices = await connectionManager.scanForDevices();
+
+    if (devices.length === 0) {
+      Alert.alert(
+        'No hay partidas',
+        'No se encontraron dispositivos. Asegúrate de que:\n\n1. El organizador ha pulsado "Iniciar Partida"\n2. Tu dispositivo está emparejado con el del organizador (Ajustes → Bluetooth)',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Mostrar lista de dispositivos disponibles
+    Alert.alert(
+      'Partidas disponibles',
+      devices.map((d, i) => `${i + 1}. ${d.name}`).join('\n'),
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        ...devices.map((device) => ({
+          text: `Unirse a ${device.name}`,
+          onPress: async () => {
+            const connected = await connectionManager.connectToDevice(device.address, bluetoothName);
+
+            if (connected) {
+              setUserRole('slave');
+              setOnlineMode(true); // 🔧 asegura que no se vuelva a escanear
+              await updateConfig({ isMasterDevice: false });
+
+              // 🔧 Escuchar eventos de actualización de lista
+              connectionManager.onEvent((event) => {
+                if (event.type === 'PLAYERS_LIST_UPDATE') {
+                  console.log('📡 Lista de jugadores actualizada (cliente):', event.data.players);
+                  setConnectedPlayers(event.data.players);
+                }
+              });
+
+              console.log('✅ Conectado a partida');
+            } else {
+              Alert.alert('Error', 'No se pudo conectar al dispositivo.', [{ text: 'OK' }]);
+            }
+          },
+        })),
+      ]
+    );
   };
 
-  const handleCancelarConexion = () => {
+
+  const handleCancelarConexion = async () => {
+    await connectionManager.disconnect();
     setUserRole('none');
     setConnectedPlayers([]);
-    // TODO: Desconectar Bluetooth
+  };
+
+  const handleDesconectar = async () => {
+    await connectionManager.disconnect();
+    setUserRole('none');
+    setConnectedPlayers([]);
   };
 
   const handleComenzarPartida = () => {
-    // TODO: Enviar evento GAME_START
+    const config = getCurrentConfig();
+    
+    // Preparar datos del juego
+    const gameData = {
+      letter: 'A', // TODO: Obtener letra aleatoria
+      listId: config.selectedListId || 1,
+      versionId: config.selectedVersionId,
+      listName: 'Lista 1', // TODO: Obtener nombre real de la lista
+      categories: config.randomMode ? [] : undefined, // TODO: Si randomMode, enviar categorías
+      timerDuration: 180000, // TODO: Obtener de config
+      paperMode: paperMode,
+      randomMode: config.randomMode,
+    };
+    
+    // Enviar evento GAME_START a todos
+    connectionManager.startGame(gameData);
+    
+    // Ir a PantallaJuego
     navigate('PantallaJuego');
   };
 
-  const handleDesconectar = () => {
-    setUserRole('none');
-    setConnectedPlayers([]);
-    // TODO: Desconectar Bluetooth
-  };
   // ==========================================
 
 
