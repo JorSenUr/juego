@@ -1,4 +1,14 @@
 apply plugin: "com.android.application"
+// Forzar compileSdkVersion para todas las dependencias
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android {
+                compileSdkVersion 34
+            }
+        }
+    }
+}
 apply plugin: "com.facebook.react"
 
 /**
