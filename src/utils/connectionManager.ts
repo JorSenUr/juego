@@ -7,40 +7,23 @@ import RNBluetoothClassic, {
 import { Platform, PermissionsAndroid } from 'react-native';
 
 // ========== TIPOS DE EVENTOS ==========
-export type GameEvent = 
-  // 1. Esclavo se une
+export type GameEvent =
   | {
       type: 'PLAYER_JOINED';
-      data: {
-        playerName: string;
-      };
+      data: { playerName: string };
     }
-  
-  // 2. Maestro actualiza lista de jugadores conectados
   | {
       type: 'PLAYERS_LIST_UPDATE';
-      data: {
-        players: string[];
-      };
+      data: { players: string[] };
     }
-  
-  // 3. Maestro notifica que alguien se desconectó
   | {
       type: 'PLAYER_LEFT';
-      data: {
-        playerName: string;
-      };
+      data: { playerName: string };
     }
-  
-  // 4. Maestro actualiza configuración mientras espera
   | {
       type: 'GAME_CONFIG_UPDATE';
-      data: {
-        paperMode: boolean;
-      };
+      data: { paperMode: boolean };
     }
-  
-  // 5. Maestro inicia la partida
   | {
       type: 'GAME_START';
       data: {
@@ -55,41 +38,23 @@ export type GameEvent =
         randomMode: boolean;
       };
     }
-  
-  // 6. Maestro notifica que el tiempo terminó
   | {
       type: 'TIMER_END';
       data: {};
     }
-  
-  // 7. Esclavo envía su puntuación al maestro
   | {
       type: 'SCORE_SUBMIT';
-      data: {
-        playerName: string;
-        score: number;
-        answers: string[];
-      };
+      data: { playerName: string; score: number; answers: string[] };
     }
-  
-  // 8. Maestro envía todas las puntuaciones a todos
   | {
       type: 'ALL_SCORES';
       data: {
-        scores: Array<{
-          playerName: string;
-          score: number;
-          answers: string[];
-        }>;
+        scores: Array<{ playerName: string; score: number; answers: string[] }>;
       };
     }
-  
-  // 9. Maestro confirma recepción de puntuación
   | {
       type: 'SCORE_ACK';
-      data: {
-        playerName: string;
-      };
+      data: { playerName: string };
     };
 
 type EventCallback = (event: GameEvent) => void;
@@ -105,32 +70,34 @@ class ConnectionManager {
   private readSubscriptions: Map<string, BluetoothEventSubscription> = new Map();
   private myName: string = '';
 
+  // 🔧 Control interno
+  private acceptLoopActive: boolean = false;
+  private connectedAddresses: Set<string> = new Set();
+
+  private sleep(ms: number) {
+    return new Promise(res => setTimeout(res, ms));
+  }
+
   // ========== PERMISOS ==========
   async requestPermissions(): Promise<boolean> {
-    if (Platform.OS !== 'android') {
-      return true;
-    }
+    if (Platform.OS !== 'android') return true;
 
     try {
       const apiLevel = Platform.Version;
-      
+
       if (apiLevel >= 31) {
-        // Android 12+
         const granted = await PermissionsAndroid.requestMultiple([
           PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
           PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         ]);
-        
         return (
           granted['android.permission.BLUETOOTH_CONNECT'] === PermissionsAndroid.RESULTS.GRANTED &&
           granted['android.permission.BLUETOOTH_SCAN'] === PermissionsAndroid.RESULTS.GRANTED
         );
       } else {
-        // Android 6-11
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION
         );
-        
         return granted === PermissionsAndroid.RESULTS.GRANTED;
       }
     } catch (error) {
@@ -140,101 +107,133 @@ class ConnectionManager {
   }
 
   // ========== SERVIDOR (MAESTRO) ==========
-    async startServer(playerName: string): Promise<boolean> {
+  async startServer(playerName: string): Promise<boolean> {
     try {
-        const hasPermissions = await this.requestPermissions();
-        if (!hasPermissions) {
-        throw new Error('Permisos Bluetooth denegados');
-        }
+      const hasPermissions = await this.requestPermissions();
+      if (!hasPermissions) throw new Error('Permisos Bluetooth denegados');
 
-        this.isServer = true;
-        this.myName = playerName;
-        this.gameState = 'waiting';
-        
-        // Añadirse a sí mismo como primer jugador
-        this.connectedPlayers.set(playerName, null);
-        
-        const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-        if (!enabled) {
-        await RNBluetoothClassic.requestBluetoothEnabled();
-        }
+      this.isServer = true;
+      this.myName = playerName;
+      this.gameState = 'waiting';
 
-        // Nota: El dispositivo debe estar emparejado previamente
-        // Los esclavos lo encontrarán en su lista de dispositivos emparejados
+      this.connectedPlayers.set(playerName, null);
 
-        console.log('✅ Servidor iniciado:', playerName);
-        return true;
+      const enabled = await RNBluetoothClassic.isBluetoothEnabled();
+      if (!enabled) await RNBluetoothClassic.requestBluetoothEnabled();
+
+      console.log('✅ Servidor iniciado:', playerName);
+
+      // Iniciar bucle de aceptación
+      this.startAcceptLoop();
+      return true;
     } catch (error) {
-        console.error('❌ Error al iniciar servidor:', error);
-        return false;
+      console.error('❌ Error al iniciar servidor:', error);
+      return false;
     }
+  }
+
+  // 🔧 Bucle de aceptación secuencial
+private async startAcceptLoop() {
+  if (this.acceptLoopActive || !this.isServer) return;
+
+  this.acceptLoopActive = true;
+  console.log('🔧 Iniciando accept único...');
+
+  try {
+    const alreadyAccepting = await (RNBluetoothClassic as any).isAccepting?.();
+    if (alreadyAccepting) {
+      console.log('⚠️ Ya se estaba aceptando una conexión, no se inicia otra.');
+      return;
     }
+
+    console.log('🔊 Esperando una conexión entrante...');
+    const device: BluetoothDevice = await (RNBluetoothClassic as any).accept?.({
+      delimiter: '\n',
+    });
+
+    if (device) {
+      if (!this.connectedAddresses.has(device.address)) {
+        this.connectedAddresses.add(device.address);
+        this.connectedDevices.push(device);
+        this.startListeningForMessages(device, `__pending_${device.address}`);
+        console.log('✅ Cliente conectado (accept único):', device.name || device.address);
+      } else {
+        console.log('⚠️ Cliente ya conectado:', device.address);
+      }
+    } else {
+      console.log('⏸ No se recibió ninguna conexión entrante.');
+    }
+  } catch (error) {
+    console.error('❌ Error en accept único:', error);
+  } finally {
+    this.acceptLoopActive = false;
+    console.log('🛑 Finalizó accept único.');
+  }
+}
+
 
   // ========== CLIENTE (ESCLAVO) ==========
   async scanForDevices(): Promise<Array<{ name: string; address: string; playersCount: number }>> {
     try {
-        const hasPermissions = await this.requestPermissions();
-        if (!hasPermissions) {
-        throw new Error('Permisos Bluetooth denegados');
-        }
+      const hasPermissions = await this.requestPermissions();
+      if (!hasPermissions) throw new Error('Permisos Bluetooth denegados');
 
-        const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-        if (!enabled) {
-        await RNBluetoothClassic.requestBluetoothEnabled();
-        }
+      const enabled = await RNBluetoothClassic.isBluetoothEnabled();
+      if (!enabled) await RNBluetoothClassic.requestBluetoothEnabled();
 
-        // Primero escanear dispositivos emparejados (más rápido y fiable)
-        const paired = await RNBluetoothClassic.getBondedDevices();
-        
-        // Intentar descubrir nuevos dispositivos también (opcional)
-        let unpaired: BluetoothDevice[] = [];
-        try {
+      const paired = await RNBluetoothClassic.getBondedDevices();
+      let unpaired: BluetoothDevice[] = [];
+
+      try {
         unpaired = await RNBluetoothClassic.startDiscovery();
-        } catch (discoveryError) {
+      } catch {
         console.warn('⚠️ No se pudieron descubrir nuevos dispositivos, usando solo emparejados');
-        }
-        
-        const allDevices = [...paired, ...unpaired];
-        
-        // Retornar todos los dispositivos emparejados
-        // (asumimos que si están emparejados, es porque quieren jugar)
-        const devices = allDevices.map(device => ({
+      }
+
+      const allDevices = [...paired, ...unpaired];
+      const devices = allDevices.map(device => ({
         name: device.name || device.address,
         address: device.address,
-        playersCount: 1, // Por ahora siempre 1 (maestro solo)
-        }));
+        playersCount: 1,
+      }));
 
-        console.log('📱 Dispositivos encontrados:', devices.length);
-        return devices;
+      console.log('📱 Dispositivos encontrados:', devices.length);
+      return devices;
     } catch (error) {
-        console.error('❌ Error al escanear:', error);
-        return [];
+      console.error('❌ Error al escanear:', error);
+      return [];
     }
   }
 
   async connectToDevice(address: string, playerName: string): Promise<boolean> {
     try {
+      if (this.connectedAddresses.has(address)) {
+        console.log('⚠️ Ya había conexión con', address);
+        return true;
+      }
+
       const device = await RNBluetoothClassic.connectToDevice(address);
-      
       if (device) {
-        this.connectedDevices.push(device);
+        this.connectedAddresses.add(device.address);
+        if (!this.connectedDevices.find(d => d.address === device.address)) {
+          this.connectedDevices.push(device);
+        }
+
         this.connectedPlayers.set(playerName, device);
         this.myName = playerName;
         this.isServer = false;
-        
-        // Empezar a escuchar mensajes
+
         this.startListeningForMessages(device, playerName);
-        
-        // Enviar evento de JOIN
+
         this.sendEvent({
           type: 'PLAYER_JOINED',
-          data: { playerName }
+          data: { playerName },
         });
-        
-        console.log('✅ Conectado a:', device.name);
+
+        console.log('✅ Conectado a:', device.name || device.address);
         return true;
       }
-      
+
       return false;
     } catch (error) {
       console.error('❌ Error al conectar:', error);
@@ -242,104 +241,78 @@ class ConnectionManager {
     }
   }
 
-  // ========== MANEJO DE EVENTOS RECIBIDOS ==========
+  // ========== LECTURA DE MENSAJES ==========
   private startListeningForMessages(device: BluetoothDevice, playerName: string) {
     const subscription = device.onDataReceived((data) => {
       try {
         const message = data.data;
         const event: GameEvent = JSON.parse(message);
-        
         console.log('📩 Mensaje recibido:', event.type);
-        
-        // Procesar evento según tipo
         this.handleReceivedEvent(event, playerName, device);
-        
-        // Notificar a todos los callbacks
-        this.eventCallbacks.forEach(callback => callback(event));
+        this.eventCallbacks.forEach(cb => cb(event));
       } catch (error) {
         console.error('❌ Error al procesar mensaje:', error);
       }
     });
-    
+
     this.readSubscriptions.set(playerName, subscription);
   }
 
   private handleReceivedEvent(event: GameEvent, senderName: string, senderDevice: BluetoothDevice) {
-    // Si soy servidor
     if (this.isServer) {
       switch (event.type) {
         case 'PLAYER_JOINED':
           this.handlePlayerJoined(event.data.playerName, senderDevice);
           break;
-          
         case 'SCORE_SUBMIT':
           this.handleScoreSubmit(event.data);
           break;
       }
-    }
-    
-    // Si soy cliente
-    if (!this.isServer) {
+    } else {
       switch (event.type) {
         case 'GAME_START':
           this.gameState = 'playing';
           break;
-          
         case 'TIMER_END':
           this.gameState = 'scoring';
           break;
-          
         case 'ALL_SCORES':
-          this.gameState = 'waiting'; // Volver a waiting tras recibir puntuaciones
+          this.gameState = 'waiting';
           break;
       }
     }
   }
 
   private handlePlayerJoined(playerName: string, device: BluetoothDevice) {
-    // Si el juego está en waiting, añadir directamente
-    if (this.gameState === 'waiting') {
-        // Verificar que no esté ya conectado (evitar duplicados)
-        if (this.connectedPlayers.has(playerName)) {
-        console.log('⚠️ Jugador ya conectado:', playerName);
-        return;
-        }
-        
-        this.connectedDevices.push(device);
-        this.connectedPlayers.set(playerName, device);
-        
-        // Empezar a escuchar mensajes de este jugador
-        this.startListeningForMessages(device, playerName);
-        
-        // Enviar lista actualizada a todos
-        this.broadcastPlayersList();
-        
-        console.log('✅ Jugador añadido:', playerName);
-    } else {
-        // Si está jugando o puntuando, guardar en cola
-        if (!this.pendingReconnections.includes(playerName)) {
+    if (this.gameState !== 'waiting') {
+      if (!this.pendingReconnections.includes(playerName)) {
         this.pendingReconnections.push(playerName);
         console.log('⏳ Reconexión pendiente:', playerName);
-        }
+      }
+      return;
     }
+
+    if (this.connectedPlayers.has(playerName)) {
+      console.log('⚠️ Jugador ya conectado por nombre:', playerName);
+    } else {
+      this.connectedPlayers.set(playerName, device);
+      const pendingKey = `__pending_${device.address}`;
+      const pendingSub = this.readSubscriptions.get(pendingKey);
+      if (pendingSub) {
+        this.readSubscriptions.delete(pendingKey);
+        this.readSubscriptions.set(playerName, pendingSub);
+      }
+      console.log('✅ Jugador añadido:', playerName);
+    }
+
+    this.broadcastPlayersList();
   }
 
   private handleScoreSubmit(data: { playerName: string; score: number; answers: string[] }) {
-    // Guardar puntuación
-    this.submittedScores.set(data.playerName, {
-      score: data.score,
-      answers: data.answers
-    });
-    
-    // Enviar ACK
-    this.sendEventToPlayer(data.playerName, {
-      type: 'SCORE_ACK',
-      data: { playerName: data.playerName }
-    });
-    
+    this.submittedScores.set(data.playerName, { score: data.score, answers: data.answers });
+    this.sendEventToPlayer(data.playerName, { type: 'SCORE_ACK', data: { playerName: data.playerName } });
     console.log('✅ Puntuación recibida de:', data.playerName);
-    
-    // Si ya tenemos todas las puntuaciones, enviar ALL_SCORES
+
     if (this.submittedScores.size === this.connectedPlayers.size) {
       this.sendAllScores();
     }
@@ -349,33 +322,20 @@ class ConnectionManager {
     const scores = Array.from(this.submittedScores.entries()).map(([playerName, data]) => ({
       playerName,
       score: data.score,
-      answers: data.answers
+      answers: data.answers,
     }));
-    
-    this.sendEvent({
-      type: 'ALL_SCORES',
-      data: { scores }
-    });
-    
-    // Limpiar puntuaciones
+
+    this.sendEvent({ type: 'ALL_SCORES', data: { scores } });
     this.submittedScores.clear();
-    
-    // Cambiar a waiting y procesar reconexiones pendientes
     this.gameState = 'waiting';
     this.processPendingReconnections();
-    
     console.log('✅ Todas las puntuaciones enviadas');
   }
 
   private processPendingReconnections() {
     if (this.pendingReconnections.length > 0) {
       console.log('✅ Procesando reconexiones pendientes:', this.pendingReconnections);
-      
-      // TODO: Implementar lógica de reconexión real cuando tengamos servidor completo
-      // Por ahora solo limpiamos la cola
       this.pendingReconnections = [];
-      
-      // Actualizar lista de jugadores
       this.broadcastPlayersList();
     }
   }
@@ -383,7 +343,6 @@ class ConnectionManager {
   // ========== ENVÍO DE MENSAJES ==========
   sendEvent(event: GameEvent) {
     const message = JSON.stringify(event);
-    
     this.connectedDevices.forEach(async (device) => {
       try {
         await device.write(message);
@@ -401,18 +360,17 @@ class ConnectionManager {
       device.write(message).catch(error => {
         console.error('❌ Error al enviar a', playerName, error);
       });
+    } else {
+      console.warn('⚠️ No hay device asociado a', playerName);
     }
   }
 
   private broadcastPlayersList() {
     const players = Array.from(this.connectedPlayers.keys());
-    this.sendEvent({
-      type: 'PLAYERS_LIST_UPDATE',
-      data: { players }
-    });
+    this.sendEvent({ type: 'PLAYERS_LIST_UPDATE', data: { players } });
   }
 
-  // ========== FUNCIONES PÚBLICAS PARA UI ==========
+  // ========== FUNCIONES PÚBLICAS ==========
   updateGameState(state: 'waiting' | 'playing' | 'scoring') {
     this.gameState = state;
     console.log('🎮 Estado del juego:', state);
@@ -420,10 +378,7 @@ class ConnectionManager {
 
   notifyConfigUpdate(paperMode: boolean) {
     if (this.isServer) {
-      this.sendEvent({
-        type: 'GAME_CONFIG_UPDATE',
-        data: { paperMode }
-      });
+      this.sendEvent({ type: 'GAME_CONFIG_UPDATE', data: { paperMode } });
     }
   }
 
@@ -439,40 +394,25 @@ class ConnectionManager {
   }) {
     if (this.isServer) {
       this.gameState = 'playing';
-      this.sendEvent({
-        type: 'GAME_START',
-        data: {
-          ...gameData,
-          timestamp: Date.now()
-        }
-      });
+      this.sendEvent({ type: 'GAME_START', data: { ...gameData, timestamp: Date.now() } });
     }
   }
 
   endTimer() {
     if (this.isServer) {
       this.gameState = 'scoring';
-      this.sendEvent({
-        type: 'TIMER_END',
-        data: {}
-      });
+      this.sendEvent({ type: 'TIMER_END', data: {} });
     }
   }
 
   submitScore(playerName: string, score: number, answers: string[]) {
-    // Si soy servidor, guardar directamente
     if (this.isServer) {
       this.handleScoreSubmit({ playerName, score, answers });
     } else {
-      // Si soy cliente, enviar al servidor
-      this.sendEvent({
-        type: 'SCORE_SUBMIT',
-        data: { playerName, score, answers }
-      });
+      this.sendEvent({ type: 'SCORE_SUBMIT', data: { playerName, score, answers } });
     }
   }
 
-  // ========== CALLBACKS ==========
   onEvent(callback: EventCallback) {
     this.eventCallbacks.push(callback);
   }
@@ -481,32 +421,61 @@ class ConnectionManager {
     this.eventCallbacks = this.eventCallbacks.filter(cb => cb !== callback);
   }
 
-  // ========== DESCONEXIÓN ==========
   async disconnect() {
     try {
-      // Cancelar todas las subscripciones
+      console.log('🔧 Solicitando desconexión...');
+      // Indicar que el servidor deja de aceptar conexiones
+      this.isServer = false;
+
+      // 🔧 Intentar cancelar cualquier accept() activo
+      try {
+        const accepting = await (RNBluetoothClassic as any).isAccepting?.();
+        if (accepting) {
+          console.log('🛑 Cancelando accept() pendiente...');
+          await (RNBluetoothClassic as any).cancelAccept?.();
+        }
+      } catch (e) {
+        console.warn('⚠️ No se pudo cancelar accept():', e);
+      }
+
+      // 🔧 Marcar el loop de aceptación como detenido
+      this.acceptLoopActive = false;
+
+      // 🔧 Cancelar subscripciones de lectura
       this.readSubscriptions.forEach(sub => sub.remove());
       this.readSubscriptions.clear();
 
-      // Desconectar todos los dispositivos
+      // 🔧 Desconectar dispositivos conectados
       for (const device of this.connectedDevices) {
-        await device.disconnect();
-        console.log('🔌 Desconectado de:', device.name);
+        try {
+          const isConnected = await (device as any).isConnected?.();
+          if (isConnected) {
+            await device.disconnect();
+            console.log('🔌 Desconectado de:', device.name || device.address);
+          }
+        } catch (err) {
+          console.warn('⚠️ Error al desconectar de', device.name || device.address, ':', err);
+        }
       }
 
+      // 🔧 Limpiar estado interno
       this.connectedDevices = [];
       this.connectedPlayers.clear();
-      this.isServer = false;
+      this.connectedAddresses.clear();
       this.gameState = 'waiting';
       this.pendingReconnections = [];
       this.submittedScores.clear();
       this.eventCallbacks = [];
-      
+
       console.log('✅ Desconexión completa');
     } catch (error) {
       console.error('❌ Error al desconectar:', error);
+    } finally {
+      this.acceptLoopActive = false;
+      console.log('🧹 Limpieza final del loop de aceptación completada.');
     }
   }
+
 
   // ========== GETTERS ==========
   getConnectedPlayers(): string[] {
@@ -527,5 +496,4 @@ class ConnectionManager {
   }
 }
 
-// Singleton
-export const connectionManager = new ConnectionManager(); 
+export const connectionManager = new ConnectionManager();
