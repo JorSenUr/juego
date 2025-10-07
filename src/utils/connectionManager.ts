@@ -78,6 +78,18 @@ class ConnectionManager {
     return new Promise(res => setTimeout(res, ms));
   }
 
+  // 🔧 Nuevo método: emite una señal de host detectable
+  private async broadcastHostSignal() {
+    try {
+      const localName = await (RNBluetoothClassic as any).getAdapterName?.();
+      console.log(`📡 Beacon de host activo (${localName})`);
+      // No hay necesidad de hacer nada más aquí;
+      // solo sirve como indicativo en logs.
+    } catch (error) {
+      console.warn('⚠️ No se pudo obtener el nombre del adaptador:', error);
+    }
+  }
+
   // ========== PERMISOS ==========
   async requestPermissions(): Promise<boolean> {
     if (Platform.OS !== 'android') return true;
@@ -122,6 +134,8 @@ class ConnectionManager {
       if (!enabled) await RNBluetoothClassic.requestBluetoothEnabled();
 
       console.log('✅ Servidor iniciado:', playerName);
+      // 🔧 Emitir un beacon para que otros lo detecten como partida
+      this.broadcastHostSignal();
 
       // Iniciar bucle de aceptación
       this.startAcceptLoop();
