@@ -458,7 +458,7 @@ const updateAnswer = (index: number, text: string) => {
   const handleListChange = (listId: number) => {
     const config = getCurrentConfig();
     const newList = getListById(config.selectedVersionId, listId);
-    if (newList && gameMode !== 'playing') {
+    if (newList && gameMode === 'waiting') {
       setCurrentList(newList);
       // Ajustar arrays a la nueva longitud
       setAnswers(Array(newList.categories.length).fill(''));
@@ -468,7 +468,7 @@ const updateAnswer = (index: number, text: string) => {
   };
 
   const generateNewRandomList = () => {
-    if (gameMode !== 'playing') {
+    if (gameMode === 'waiting') {
       const newList = generateRandomList();
       setCurrentList(newList);
       // Ajustar arrays a la nueva longitud
@@ -478,7 +478,7 @@ const updateAnswer = (index: number, text: string) => {
   };
 
   const toggleListDropdown = () => {
-    if (gameMode !== 'playing') {
+    if (gameMode === 'waiting') {
       setShowListDropdown(!showListDropdown);
     }
   };
@@ -517,6 +517,17 @@ const updateAnswer = (index: number, text: string) => {
         onPress={handleLetterContainerPress}
         //disabled={!config.isMasterDevice && !config.freeMode}
       >
+
+<Text style={{ 
+  color: '#fff', 
+  fontSize: 14, 
+  marginTop: 6, 
+  opacity: 0.8 
+}}>
+  gameMode: {gameMode}
+</Text>
+
+
         {(config.isMasterDevice || config.freeMode) && <Text style={styles.letter}>{currentLetter}</Text>}
         {gameMode === 'waiting' && (
           <>
@@ -591,7 +602,7 @@ const updateAnswer = (index: number, text: string) => {
               <TouchableOpacity 
                 style={styles.listTitleContainer}
                 onPress={generateNewRandomList}
-                disabled={gameMode === 'playing'}
+                disabled={gameMode !== 'waiting'}
               >
                 <Text style={styles.listTitle}>{currentList.name.toUpperCase()}</Text>
                 <Text style={styles.generateText}>PULSA PARA GENERAR NUEVA</Text>
@@ -601,7 +612,7 @@ const updateAnswer = (index: number, text: string) => {
                 <TouchableOpacity 
                   style={styles.listTitleContainer}
                   onPress={toggleListDropdown}
-                  disabled={gameMode === 'playing'}
+                  disabled={gameMode !== 'waiting'}
                 >
                   <Text style={styles.listTitle}>{currentList.name.toUpperCase()}</Text>
                   <Text style={styles.dropdownArrow}>{showListDropdown ? '▲' : '▼'}</Text>
