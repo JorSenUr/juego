@@ -187,7 +187,7 @@ class ConnectionManager {
       );
       
       console.log(`✅ Servidor iniciado en ${this.serverIp}:${SERVER_PORT}`);
-      console.log('📡 Servicio mDNS publicado: Partida de ${playerName}');
+      console.log(`📡 Servicio mDNS publicado: Partida de ${playerName}`);
       return true;
     } catch (error) {
       console.error('❌ Error al iniciar servidor:', error);

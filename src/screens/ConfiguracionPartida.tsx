@@ -34,6 +34,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
 
   // Referencias para inputs de nombres de jugadores
   const inputRefs = useRef<{ [key: number]: TextInput | null }>({});
+  const serverEventListenerRef = useRef<((event: any) => void) | null>(null);
 
 
   // ========== NUEVOS ESTADOS PARA MODO ONLINE ==========
@@ -57,11 +58,47 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     }
   };
 
-  const handleInitiarPartida = () => {
+  const handleIniciarPartida = async () => {
+    const trimmedName = playerName.trim() || 'Organizador';
+
+    const started = await connectionManager.startServer(trimmedName);
+    if (!started) {
+      Alert.alert('Error', 'No se pudo iniciar la partida. Reintenta.');
+      return;
+    }
+
+    if (serverEventListenerRef.current) {
+      connectionManager.removeEventListener(serverEventListenerRef.current);
+    }
+
+    const listener = (event: any) => {
+      if (event.type === 'PLAYERS_LIST_UPDATE') {
+        setConnectedPlayers(event.data.players);
+        return;
+      }
+
+      if (event.type === 'PLAYER_JOINED') {
+        setConnectedPlayers(prev => {
+          if (prev.includes(event.data.playerName)) {
+            return prev;
+          }
+          return [...prev, event.data.playerName];
+        });
+      }
+
+      if (event.type === 'PLAYER_LEFT') {
+        setConnectedPlayers(prev => prev.filter(name => name !== event.data.playerName));
+      }
+    };
+
+    connectionManager.onEvent(listener);
+    serverEventListenerRef.current = listener;
+
     setUserRole('master');
-    // Mock: añadirse a sí mismo como primer jugador
-    setConnectedPlayers([playerName]);
-    // TODO: Aquí iniciaremos servidor Wifi
+    setPlayerName(trimmedName);
+    const currentPlayers = connectionManager.getConnectedPlayers();
+    setConnectedPlayers(currentPlayers.length > 0 ? [...currentPlayers] : [trimmedName]);
+    await updateConfig({ isMasterDevice: true });
   };
 
   const handleUnirsePartida = async () => {
@@ -466,7 +503,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     
     <TouchableOpacity 
       style={styles.onlineActionButton}
-      onPress={handleInitiarPartida}
+      onPress={handleIniciarPartida}
     >
       <Text style={styles.onlineActionButtonText}>🎮 INICIAR PARTIDA</Text>
     </TouchableOpacity>

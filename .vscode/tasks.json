@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "React Native – Metro + Logs",
+      "type": "shell",
+      "command": "export REACT_NATIVE_PACKAGER_HOSTNAME=$(ip route get 8.8.8.8 | awk '{print $7; exit}') && npx react-native start --reset-cache & adb -s 10.107.52.226 logcat ReactNativeJS:I *:S & adb -s 10.107.52.227 logcat ReactNativeJS:I *:S",
+      "problemMatcher": []
+    }
+  ]
+}
