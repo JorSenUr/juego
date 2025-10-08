@@ -1,7 +1,7 @@
 // Gestor de conexiones WiFi Hotspot + WebSocket para modo multijugador
 
 import TcpSocket from 'react-native-tcp-socket';
-import { Platform } from 'react-native';
+import { Platform, PermissionsAndroid } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import Zeroconf from 'react-native-zeroconf';
 
@@ -196,9 +196,34 @@ class ConnectionManager {
   }
 
   // ========== CLIENTE (ESCLAVO) ==========
-  async scanForDevices(): Promise<Array<{ name: string; address: string; playersCount: number }>> {
-    return new Promise((resolve) => {
-      this.discoveredServices.clear();
+async scanForDevices(): Promise<Array<{ name: string; address: string; playersCount: number }>> {
+  return new Promise(async (resolve) => {
+    this.discoveredServices.clear();
+    
+    // Solicitar permisos si es Android
+    if (Platform.OS === 'android') {
+      try {
+        const { PermissionsAndroid } = await import('react-native');
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: 'Permiso de ubicación',
+            message: 'Necesario para descubrir dispositivos en red local',
+            buttonPositive: 'OK'
+          }
+        );
+        
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          console.log('❌ Permiso de ubicación denegado');
+          resolve([]);
+          return;
+        }
+      } catch (error) {
+        console.error('❌ Error solicitando permisos:', error);
+        resolve([]);
+        return;
+      }
+    }
       
       // Listener para servicios encontrados
       this.zeroconf.on('resolved', (service: any) => {
