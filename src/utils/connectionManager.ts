@@ -1,28 +1,36 @@
-// Gestor de conexiones Bluetooth para modo multijugador
+// Gestor de conexiones WiFi Hotspot + WebSocket para modo multijugador
 
-import RNBluetoothClassic, {
-  BluetoothDevice,
-  BluetoothEventSubscription,
-} from 'react-native-bluetooth-classic';
-import { Platform, PermissionsAndroid } from 'react-native';
+import TcpSocket from 'react-native-tcp-socket';
+import { Platform } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
+import Zeroconf from 'react-native-zeroconf';
+
 
 // ========== TIPOS DE EVENTOS ==========
-export type GameEvent =
+export type GameEvent = 
   | {
       type: 'PLAYER_JOINED';
-      data: { playerName: string };
+      data: {
+        playerName: string;
+      };
     }
   | {
       type: 'PLAYERS_LIST_UPDATE';
-      data: { players: string[] };
+      data: {
+        players: string[];
+      };
     }
   | {
       type: 'PLAYER_LEFT';
-      data: { playerName: string };
+      data: {
+        playerName: string;
+      };
     }
   | {
       type: 'GAME_CONFIG_UPDATE';
-      data: { paperMode: boolean };
+      data: {
+        paperMode: boolean;
+      };
     }
   | {
       type: 'GAME_START';
@@ -44,101 +52,142 @@ export type GameEvent =
     }
   | {
       type: 'SCORE_SUBMIT';
-      data: { playerName: string; score: number; answers: string[] };
+      data: {
+        playerName: string;
+        score: number;
+        answers: string[];
+      };
     }
   | {
       type: 'ALL_SCORES';
       data: {
-        scores: Array<{ playerName: string; score: number; answers: string[] }>;
+        scores: Array<{
+          playerName: string;
+          score: number;
+          answers: string[];
+        }>;
       };
     }
   | {
       type: 'SCORE_ACK';
-      data: { playerName: string };
+      data: {
+        playerName: string;
+      };
     };
 
 type EventCallback = (event: GameEvent) => void;
 
+const SERVER_PORT = 8765;
+
 class ConnectionManager {
   private isServer: boolean = false;
-  private connectedDevices: BluetoothDevice[] = [];
+  private server: any = null;
+  private clients: Map<string, any> = new Map(); // playerName -> socket
+  private clientSocket: any = null;
   private gameState: 'waiting' | 'playing' | 'scoring' = 'waiting';
   private pendingReconnections: string[] = [];
-  private connectedPlayers: Map<string, BluetoothDevice | null> = new Map();
+  private connectedPlayers: string[] = [];
   private submittedScores: Map<string, { score: number; answers: string[] }> = new Map();
   private eventCallbacks: EventCallback[] = [];
-  private readSubscriptions: Map<string, BluetoothEventSubscription> = new Map();
   private myName: string = '';
+  private serverIp: string = '';
+  private zeroconf: Zeroconf = new Zeroconf();
+  private discoveredServices: Map<string, { name: string; host: string; port: number; addresses: string[] }> = new Map();
 
-  // 🔧 Control interno
-  private acceptLoopActive: boolean = false;
-  private connectedAddresses: Set<string> = new Set();
 
-  private sleep(ms: number) {
-    return new Promise(res => setTimeout(res, ms));
-  }
-
-  // 🔧 Nuevo método: emite una señal de host detectable
-  private async broadcastHostSignal() {
+  // ========== OBTENER IP LOCAL ==========
+  private async getLocalIpAddress(): Promise<string> {
     try {
-      const localName = await (RNBluetoothClassic as any).getAdapterName?.();
-      console.log(`📡 Beacon de host activo (${localName})`);
-      // No hay necesidad de hacer nada más aquí;
-      // solo sirve como indicativo en logs.
-    } catch (error) {
-      console.warn('⚠️ No se pudo obtener el nombre del adaptador:', error);
-    }
-  }
-
-  // ========== PERMISOS ==========
-  async requestPermissions(): Promise<boolean> {
-    if (Platform.OS !== 'android') return true;
-
-    try {
-      const apiLevel = Platform.Version;
-
-      if (apiLevel >= 31) {
-        const granted = await PermissionsAndroid.requestMultiple([
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        ]);
-        return (
-          granted['android.permission.BLUETOOTH_CONNECT'] === PermissionsAndroid.RESULTS.GRANTED &&
-          granted['android.permission.BLUETOOTH_SCAN'] === PermissionsAndroid.RESULTS.GRANTED
-        );
-      } else {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION
-        );
-        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      const state = await NetInfo.fetch();
+      
+      // Buscar IP local en los detalles de la conexión
+      if (state.details && typeof state.details === 'object') {
+        const details = state.details as any;
+        if (details.ipAddress) {
+          return details.ipAddress;
+        }
       }
+      
+      // Fallback: IP común de hotspot Android
+      return '192.168.43.1';
     } catch (error) {
-      console.error('Error requesting permissions:', error);
-      return false;
+      console.error('Error obteniendo IP:', error);
+      return '192.168.43.1';
     }
   }
 
   // ========== SERVIDOR (MAESTRO) ==========
   async startServer(playerName: string): Promise<boolean> {
     try {
-      const hasPermissions = await this.requestPermissions();
-      if (!hasPermissions) throw new Error('Permisos Bluetooth denegados');
-
       this.isServer = true;
       this.myName = playerName;
       this.gameState = 'waiting';
+      this.connectedPlayers = [playerName];
+      
+      // Obtener IP del servidor
+      this.serverIp = await this.getLocalIpAddress();
 
-      this.connectedPlayers.set(playerName, null);
+      // Crear servidor TCP
+      this.server = TcpSocket.createServer((socket: any) => {
+        console.log('✅ Cliente conectado desde:', socket.address());
+        
+        socket.on('data', (data: any) => {
+          try {
+            const message = data.toString('utf8');
+            const event: GameEvent = JSON.parse(message);
+            
+            console.log('📩 Mensaje recibido:', event.type);
+            
+            // Si es PLAYER_JOINED, guardar el socket con el nombre del jugador
+            if (event.type === 'PLAYER_JOINED') {
+              const playerName = event.data.playerName;
+              this.clients.set(playerName, socket);
+              this.handlePlayerJoined(playerName);
+            }
+            
+            // Procesar evento
+            this.handleReceivedEvent(event);
+            
+            // Notificar callbacks
+            this.eventCallbacks.forEach(callback => callback(event));
+          } catch (error) {
+            console.error('❌ Error procesando mensaje:', error);
+          }
+        });
+        
+        socket.on('error', (error: any) => {
+          console.error('❌ Error en socket:', error);
+        });
+        
+        socket.on('close', () => {
+          console.log('🔌 Cliente desconectado');
+          // Buscar y eliminar el cliente
+          for (const [playerName, clientSocket] of this.clients.entries()) {
+            if (clientSocket === socket) {
+              this.handlePlayerLeft(playerName);
+              this.clients.delete(playerName);
+              break;
+            }
+          }
+        });
+      });
 
-      const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-      if (!enabled) await RNBluetoothClassic.requestBluetoothEnabled();
-
-      console.log('✅ Servidor iniciado:', playerName);
-      // 🔧 Emitir un beacon para que otros lo detecten como partida
-      this.broadcastHostSignal();
-
-      // Iniciar bucle de aceptación
-      this.startAcceptLoop();
+      this.server.listen({ port: SERVER_PORT, host: '0.0.0.0' });
+      
+      // Publicar servicio mDNS
+      this.zeroconf.publishService(
+        'scattergories',
+        '_scattergories._tcp',
+        'local',
+        SERVER_PORT,
+        {
+          name: playerName,
+          players: '1'
+        }
+      );
+      
+      console.log(`✅ Servidor iniciado en ${this.serverIp}:${SERVER_PORT}`);
+      console.log('📡 Servicio mDNS publicado: Partida de ${playerName}');
       return true;
     } catch (error) {
       console.error('❌ Error al iniciar servidor:', error);
@@ -146,150 +195,131 @@ class ConnectionManager {
     }
   }
 
-  // 🔧 Bucle de aceptación secuencial
-private async startAcceptLoop() {
-  if (this.acceptLoopActive || !this.isServer) return;
-
-  this.acceptLoopActive = true;
-  console.log('🔧 Iniciando accept único...');
-
-  try {
-    const alreadyAccepting = await (RNBluetoothClassic as any).isAccepting?.();
-    if (alreadyAccepting) {
-      console.log('⚠️ Ya se estaba aceptando una conexión, no se inicia otra.');
-      return;
-    }
-
-    console.log('🔊 Esperando una conexión entrante...');
-    const device: BluetoothDevice = await (RNBluetoothClassic as any).accept?.({
-      delimiter: '\n',
-    });
-
-    if (device) {
-      if (!this.connectedAddresses.has(device.address)) {
-        this.connectedAddresses.add(device.address);
-        this.connectedDevices.push(device);
-        this.startListeningForMessages(device, `__pending_${device.address}`);
-        console.log('✅ Cliente conectado (accept único):', device.name || device.address);
-      } else {
-        console.log('⚠️ Cliente ya conectado:', device.address);
-      }
-    } else {
-      console.log('⏸ No se recibió ninguna conexión entrante.');
-    }
-  } catch (error) {
-    console.error('❌ Error en accept único:', error);
-  } finally {
-    this.acceptLoopActive = false;
-    console.log('🛑 Finalizó accept único.');
-  }
-}
-
-
   // ========== CLIENTE (ESCLAVO) ==========
   async scanForDevices(): Promise<Array<{ name: string; address: string; playersCount: number }>> {
-    try {
-      const hasPermissions = await this.requestPermissions();
-      if (!hasPermissions) throw new Error('Permisos Bluetooth denegados');
-
-      const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-      if (!enabled) await RNBluetoothClassic.requestBluetoothEnabled();
-
-      const paired = await RNBluetoothClassic.getBondedDevices();
-      let unpaired: BluetoothDevice[] = [];
-
-      try {
-        unpaired = await RNBluetoothClassic.startDiscovery();
-      } catch {
-        console.warn('⚠️ No se pudieron descubrir nuevos dispositivos, usando solo emparejados');
-      }
-
-      const allDevices = [...paired, ...unpaired];
-      const devices = allDevices.map(device => ({
-        name: device.name || device.address,
-        address: device.address,
-        playersCount: 1,
-      }));
-
-      console.log('📱 Dispositivos encontrados:', devices.length);
-      return devices;
-    } catch (error) {
-      console.error('❌ Error al escanear:', error);
-      return [];
-    }
+    return new Promise((resolve) => {
+      this.discoveredServices.clear();
+      
+      // Listener para servicios encontrados
+      this.zeroconf.on('resolved', (service: any) => {
+        console.log('📡 Servicio encontrado:', service);
+        
+        if (service.name && service.addresses && service.addresses.length > 0) {
+          const playerName = service.txt?.name || service.name;
+          const playersCount = parseInt(service.txt?.players || '1');
+          
+          this.discoveredServices.set(service.name, {
+            name: playerName,
+            host: service.host,
+            port: service.port,
+            addresses: service.addresses
+          });
+        }
+      });
+      
+      // Listener para errores
+      this.zeroconf.on('error', (error: any) => {
+        console.error('❌ Error en escaneo mDNS:', error);
+      });
+      
+      // Iniciar escaneo
+      console.log('🔍 Escaneando servicios mDNS...');
+      this.zeroconf.scan('_scattergories._tcp', 'local');
+      
+      // Esperar 5 segundos y retornar resultados
+      setTimeout(() => {
+        this.zeroconf.stop();
+        
+        const devices = Array.from(this.discoveredServices.values()).map(service => ({
+          name: `Partida de ${service.name}`,
+          address: service.addresses[0], // Primera IP encontrada
+          playersCount: 1 // TODO: Obtener del txt record
+        }));
+        
+        console.log('📱 Dispositivos encontrados:', devices.length);
+        resolve(devices);
+      }, 5000);
+    });
   }
 
-  async connectToDevice(address: string, playerName: string): Promise<boolean> {
+  async connectToDevice(serverIp: string, playerName: string): Promise<boolean> {
     try {
-      if (this.connectedAddresses.has(address)) {
-        console.log('⚠️ Ya había conexión con', address);
-        return true;
-      }
-
-      const device = await RNBluetoothClassic.connectToDevice(address);
-      if (device) {
-        this.connectedAddresses.add(device.address);
-        if (!this.connectedDevices.find(d => d.address === device.address)) {
-          this.connectedDevices.push(device);
+      this.isServer = false;
+      this.myName = playerName;
+      
+      // Crear socket cliente
+      this.clientSocket = TcpSocket.createConnection(
+        {
+          port: SERVER_PORT,
+          host: serverIp,
+        },
+        () => {
+          console.log('✅ Conectado al servidor');
+          
+          // Enviar PLAYER_JOINED
+          this.sendEvent({
+            type: 'PLAYER_JOINED',
+            data: { playerName }
+          });
         }
+      );
 
-        this.connectedPlayers.set(playerName, device);
-        this.myName = playerName;
-        this.isServer = false;
+      this.clientSocket.on('data', (data: any) => {
+        try {
+          const message = data.toString('utf8');
+          const event: GameEvent = JSON.parse(message);
+          
+          console.log('📩 Mensaje recibido:', event.type);
+          
+          // Procesar evento
+          this.handleReceivedEvent(event);
+          
+          // Notificar callbacks
+          this.eventCallbacks.forEach(callback => callback(event));
+        } catch (error) {
+          console.error('❌ Error procesando mensaje:', error);
+        }
+      });
 
-        this.startListeningForMessages(device, playerName);
+      this.clientSocket.on('error', (error: any) => {
+        console.error('❌ Error en conexión:', error);
+      });
 
-        this.sendEvent({
-          type: 'PLAYER_JOINED',
-          data: { playerName },
-        });
+      this.clientSocket.on('close', () => {
+        console.log('🔌 Desconectado del servidor');
+      });
 
-        console.log('✅ Conectado a:', device.name || device.address);
-        return true;
-      }
-
-      return false;
+      return true;
     } catch (error) {
       console.error('❌ Error al conectar:', error);
       return false;
     }
   }
 
-  // ========== LECTURA DE MENSAJES ==========
-  private startListeningForMessages(device: BluetoothDevice, playerName: string) {
-    const subscription = device.onDataReceived((data) => {
-      try {
-        const message = data.data;
-        const event: GameEvent = JSON.parse(message);
-        console.log('📩 Mensaje recibido:', event.type);
-        this.handleReceivedEvent(event, playerName, device);
-        this.eventCallbacks.forEach(cb => cb(event));
-      } catch (error) {
-        console.error('❌ Error al procesar mensaje:', error);
-      }
-    });
-
-    this.readSubscriptions.set(playerName, subscription);
-  }
-
-  private handleReceivedEvent(event: GameEvent, senderName: string, senderDevice: BluetoothDevice) {
+  // ========== MANEJO DE EVENTOS ==========
+  private handleReceivedEvent(event: GameEvent) {
     if (this.isServer) {
       switch (event.type) {
-        case 'PLAYER_JOINED':
-          this.handlePlayerJoined(event.data.playerName, senderDevice);
-          break;
         case 'SCORE_SUBMIT':
           this.handleScoreSubmit(event.data);
           break;
       }
-    } else {
+    }
+    
+    if (!this.isServer) {
       switch (event.type) {
+        case 'PLAYERS_LIST_UPDATE':
+          this.connectedPlayers = event.data.players;
+          break;
+          
         case 'GAME_START':
           this.gameState = 'playing';
           break;
+          
         case 'TIMER_END':
           this.gameState = 'scoring';
           break;
+          
         case 'ALL_SCORES':
           this.gameState = 'waiting';
           break;
@@ -297,37 +327,49 @@ private async startAcceptLoop() {
     }
   }
 
-  private handlePlayerJoined(playerName: string, device: BluetoothDevice) {
-    if (this.gameState !== 'waiting') {
+  private handlePlayerJoined(playerName: string) {
+    if (this.gameState === 'waiting') {
+      if (!this.connectedPlayers.includes(playerName)) {
+        this.connectedPlayers.push(playerName);
+        this.broadcastPlayersList();
+        console.log('✅ Jugador añadido:', playerName);
+      }
+    } else {
       if (!this.pendingReconnections.includes(playerName)) {
         this.pendingReconnections.push(playerName);
         console.log('⏳ Reconexión pendiente:', playerName);
       }
-      return;
     }
+  }
 
-    if (this.connectedPlayers.has(playerName)) {
-      console.log('⚠️ Jugador ya conectado por nombre:', playerName);
-    } else {
-      this.connectedPlayers.set(playerName, device);
-      const pendingKey = `__pending_${device.address}`;
-      const pendingSub = this.readSubscriptions.get(pendingKey);
-      if (pendingSub) {
-        this.readSubscriptions.delete(pendingKey);
-        this.readSubscriptions.set(playerName, pendingSub);
-      }
-      console.log('✅ Jugador añadido:', playerName);
+  private handlePlayerLeft(playerName: string) {
+    const index = this.connectedPlayers.indexOf(playerName);
+    if (index > -1) {
+      this.connectedPlayers.splice(index, 1);
+      this.broadcastPlayersList();
+      
+      this.sendEvent({
+        type: 'PLAYER_LEFT',
+        data: { playerName }
+      });
     }
-
-    this.broadcastPlayersList();
   }
 
   private handleScoreSubmit(data: { playerName: string; score: number; answers: string[] }) {
-    this.submittedScores.set(data.playerName, { score: data.score, answers: data.answers });
-    this.sendEventToPlayer(data.playerName, { type: 'SCORE_ACK', data: { playerName: data.playerName } });
+    this.submittedScores.set(data.playerName, {
+      score: data.score,
+      answers: data.answers
+    });
+    
+    // Enviar ACK
+    this.sendEventToPlayer(data.playerName, {
+      type: 'SCORE_ACK',
+      data: { playerName: data.playerName }
+    });
+    
     console.log('✅ Puntuación recibida de:', data.playerName);
-
-    if (this.submittedScores.size === this.connectedPlayers.size) {
+    
+    if (this.submittedScores.size === this.connectedPlayers.length) {
       this.sendAllScores();
     }
   }
@@ -336,19 +378,31 @@ private async startAcceptLoop() {
     const scores = Array.from(this.submittedScores.entries()).map(([playerName, data]) => ({
       playerName,
       score: data.score,
-      answers: data.answers,
+      answers: data.answers
     }));
-
-    this.sendEvent({ type: 'ALL_SCORES', data: { scores } });
+    
+    this.sendEvent({
+      type: 'ALL_SCORES',
+      data: { scores }
+    });
+    
     this.submittedScores.clear();
     this.gameState = 'waiting';
     this.processPendingReconnections();
+    
     console.log('✅ Todas las puntuaciones enviadas');
   }
 
   private processPendingReconnections() {
     if (this.pendingReconnections.length > 0) {
       console.log('✅ Procesando reconexiones pendientes:', this.pendingReconnections);
+      
+      this.pendingReconnections.forEach(playerName => {
+        if (!this.connectedPlayers.includes(playerName)) {
+          this.connectedPlayers.push(playerName);
+        }
+      });
+      
       this.pendingReconnections = [];
       this.broadcastPlayersList();
     }
@@ -357,42 +411,71 @@ private async startAcceptLoop() {
   // ========== ENVÍO DE MENSAJES ==========
   sendEvent(event: GameEvent) {
     const message = JSON.stringify(event);
-    this.connectedDevices.forEach(async (device) => {
-      try {
-        await device.write(message);
-        console.log('📤 Evento enviado:', event.type, 'a', device.name);
-      } catch (error) {
-        console.error('❌ Error al enviar a', device.name, error);
+    
+    if (this.isServer) {
+      // Enviar a todos los clientes conectados
+      this.clients.forEach((socket, playerName) => {
+        try {
+          socket.write(message);
+          console.log('📤 Evento enviado:', event.type, 'a', playerName);
+        } catch (error) {
+          console.error('❌ Error al enviar a', playerName, error);
+        }
+      });
+    } else {
+      // Enviar al servidor
+      if (this.clientSocket) {
+        try {
+          this.clientSocket.write(message);
+          console.log('📤 Evento enviado:', event.type);
+        } catch (error) {
+          console.error('❌ Error al enviar:', error);
+        }
       }
-    });
+    }
   }
 
   private sendEventToPlayer(playerName: string, event: GameEvent) {
-    const device = this.connectedPlayers.get(playerName);
-    if (device && device !== null) {
+    const socket = this.clients.get(playerName);
+    if (socket) {
       const message = JSON.stringify(event);
-      device.write(message).catch(error => {
-        console.error('❌ Error al enviar a', playerName, error);
-      });
-    } else {
-      console.warn('⚠️ No hay device asociado a', playerName);
+      socket.write(message);
     }
   }
 
   private broadcastPlayersList() {
-    const players = Array.from(this.connectedPlayers.keys());
-    this.sendEvent({ type: 'PLAYERS_LIST_UPDATE', data: { players } });
+    this.sendEvent({
+      type: 'PLAYERS_LIST_UPDATE',
+      data: { players: this.connectedPlayers }
+    });
+    
+    // Actualizar servicio mDNS con número de jugadores
+    if (this.isServer) {
+      this.zeroconf.unpublishService('scattergories');
+      this.zeroconf.publishService(
+        'scattergories',
+        '_scattergories._tcp',
+        'local',
+        SERVER_PORT,
+        {
+          name: this.myName,
+          players: this.connectedPlayers.length.toString()
+        }
+      );
+    }
   }
 
   // ========== FUNCIONES PÚBLICAS ==========
   updateGameState(state: 'waiting' | 'playing' | 'scoring') {
     this.gameState = state;
-    console.log('🎮 Estado del juego:', state);
   }
 
   notifyConfigUpdate(paperMode: boolean) {
     if (this.isServer) {
-      this.sendEvent({ type: 'GAME_CONFIG_UPDATE', data: { paperMode } });
+      this.sendEvent({
+        type: 'GAME_CONFIG_UPDATE',
+        data: { paperMode }
+      });
     }
   }
 
@@ -408,14 +491,23 @@ private async startAcceptLoop() {
   }) {
     if (this.isServer) {
       this.gameState = 'playing';
-      this.sendEvent({ type: 'GAME_START', data: { ...gameData, timestamp: Date.now() } });
+      this.sendEvent({
+        type: 'GAME_START',
+        data: {
+          ...gameData,
+          timestamp: Date.now()
+        }
+      });
     }
   }
 
   endTimer() {
     if (this.isServer) {
       this.gameState = 'scoring';
-      this.sendEvent({ type: 'TIMER_END', data: {} });
+      this.sendEvent({
+        type: 'TIMER_END',
+        data: {}
+      });
     }
   }
 
@@ -423,10 +515,18 @@ private async startAcceptLoop() {
     if (this.isServer) {
       this.handleScoreSubmit({ playerName, score, answers });
     } else {
-      this.sendEvent({ type: 'SCORE_SUBMIT', data: { playerName, score, answers } });
+      this.sendEvent({
+        type: 'SCORE_SUBMIT',
+        data: { playerName, score, answers }
+      });
     }
   }
 
+  getServerIp(): string {
+    return this.serverIp;
+  }
+
+  // ========== CALLBACKS ==========
   onEvent(callback: EventCallback) {
     this.eventCallbacks.push(callback);
   }
@@ -435,73 +535,54 @@ private async startAcceptLoop() {
     this.eventCallbacks = this.eventCallbacks.filter(cb => cb !== callback);
   }
 
+  // ========== DESCONEXIÓN ==========
   async disconnect() {
     try {
-      console.log('🔧 Solicitando desconexión...');
-      // Indicar que el servidor deja de aceptar conexiones
-      this.isServer = false;
-
-      // 🔧 Intentar cancelar cualquier accept() activo
+      if (this.isServer && this.server) {
+      // Despublicar servicio mDNS
       try {
-        const accepting = await (RNBluetoothClassic as any).isAccepting?.();
-        if (accepting) {
-          console.log('🛑 Cancelando accept() pendiente...');
-          await (RNBluetoothClassic as any).cancelAccept?.();
-        }
+        this.zeroconf.unpublishService('scattergories');
+        console.log('📡 Servicio mDNS despublicado');
       } catch (e) {
-        console.warn('⚠️ No se pudo cancelar accept():', e);
+        // Ignorar si no estaba publicado
+      }
+        this.clients.forEach(socket => socket.destroy());
+        this.clients.clear();
+        this.server.close();
+        this.server = null;
+        console.log('🛑 Servidor cerrado');
+      }
+      
+      if (!this.isServer && this.clientSocket) {
+        this.clientSocket.destroy();
+        this.clientSocket = null;
+        console.log('🔌 Desconectado del servidor');
       }
 
-      // 🔧 Marcar el loop de aceptación como detenido
-      this.acceptLoopActive = false;
-
-      // 🔧 Cancelar subscripciones de lectura
-      this.readSubscriptions.forEach(sub => sub.remove());
-      this.readSubscriptions.clear();
-
-      // 🔧 Desconectar dispositivos conectados
-      for (const device of this.connectedDevices) {
-        try {
-          const isConnected = await (device as any).isConnected?.();
-          if (isConnected) {
-            await device.disconnect();
-            console.log('🔌 Desconectado de:', device.name || device.address);
-          }
-        } catch (err) {
-          console.warn('⚠️ Error al desconectar de', device.name || device.address, ':', err);
-        }
-      }
-
-      // 🔧 Limpiar estado interno
-      this.connectedDevices = [];
-      this.connectedPlayers.clear();
-      this.connectedAddresses.clear();
+      this.connectedPlayers = [];
+      this.isServer = false;
       this.gameState = 'waiting';
       this.pendingReconnections = [];
       this.submittedScores.clear();
       this.eventCallbacks = [];
-
+      
       console.log('✅ Desconexión completa');
     } catch (error) {
       console.error('❌ Error al desconectar:', error);
-    } finally {
-      this.acceptLoopActive = false;
-      console.log('🧹 Limpieza final del loop de aceptación completada.');
     }
   }
 
-
   // ========== GETTERS ==========
   getConnectedPlayers(): string[] {
-    return Array.from(this.connectedPlayers.keys());
+    return this.connectedPlayers;
   }
 
   isConnected(): boolean {
-    return this.connectedPlayers.size > 0;
+    return this.connectedPlayers.length > 0;
   }
 
   getRole(): 'server' | 'client' | 'none' {
-    if (this.connectedPlayers.size === 0) return 'none';
+    if (this.connectedPlayers.length === 0) return 'none';
     return this.isServer ? 'server' : 'client';
   }
 
@@ -510,4 +591,5 @@ private async startAcceptLoop() {
   }
 }
 
+// Singleton
 export const connectionManager = new ConnectionManager();

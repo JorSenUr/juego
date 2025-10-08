@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
 import { connectionManager } from '../utils/connectionManager';
-import RNBluetoothClassic from 'react-native-bluetooth-classic';
 
 
 
@@ -41,22 +40,10 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
   const [onlineMode, setOnlineMode] = useState<boolean>(false);
   const [userRole, setUserRole] = useState<'none' | 'master' | 'slave'>('none');
   const [connectedPlayers, setConnectedPlayers] = useState<string[]>([]);
-  const [bluetoothName, setBluetoothName] = useState<string>(config.playerNames[0] || 'Nombre');
-  // 🔧 NUEVOS ESTADOS PARA LISTA DE PARTIDAS DISPONIBLES
-  const [isScanning, setIsScanning] = useState(false);
-  const [foundDevices, setFoundDevices] = useState<Array<{ name: string; address: string; playersCount: number }>>([]);
-
+  const [playerName, setPlayerName] = useState<string>(config.playerNames[0] || 'Nombre');
   // =====================================================
   
-  // Cleanup al desmontar
-  useEffect(() => {
-    return () => {
-      // Si salimos de la pantalla, desconectar
-      if (userRole !== 'none') {
-        connectionManager.disconnect();
-      }
-    };
-  }, [userRole]);
+
 
   // ========== FUNCIONES MODO ONLINE ==========
   const toggleOnlineMode = () => {
@@ -70,138 +57,73 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     }
   };
 
-  // 🔧 CORREGIDO: Servidor se anuncia con nombre ScattergoriesHost_ + nombre
-  const handleInitiarPartida = async () => {
-    try {
-      // Cambiar temporalmente el nombre Bluetooth del host
-      const hostName = `ScattergoriesHost_${bluetoothName}`;
-      console.log('📡 Estableciendo nombre Bluetooth:', hostName);
-      await (RNBluetoothClassic as any).setAdapterName?.(hostName);
-
-      // Escuchar eventos de conexión ANTES de iniciar el servidor
-      connectionManager.onEvent((event) => {
-        if (event.type === 'PLAYERS_LIST_UPDATE') {
-          console.log('📡 Lista de jugadores actualizada:', event.data.players);
-          setConnectedPlayers(event.data.players);
-        }
-      });
-
-      const success = await connectionManager.startServer(hostName);
-
-      if (success) {
-        setUserRole('master');
-        setConnectedPlayers([bluetoothName]);
-        setOnlineMode(true);
-        await updateConfig({ isMasterDevice: true });
-        console.log('✅ Servidor iniciado como', hostName);
-      } else {
-        Alert.alert(
-          'Error',
-          'No se pudieron obtener permisos de Bluetooth o activar Bluetooth.',
-          [{ text: 'OK' }]
-        );
-      }
-    } catch (error) {
-      console.error('❌ Error iniciando partida:', error);
-    }
+  const handleInitiarPartida = () => {
+    setUserRole('master');
+    // Mock: añadirse a sí mismo como primer jugador
+    setConnectedPlayers([playerName]);
+    // TODO: Aquí iniciaremos servidor Wifi
   };
 
-
-  // 🔧 NUEVA FUNCIÓN - lobby visual con filtro de hosts activos
   const handleUnirsePartida = async () => {
-    if (userRole !== 'none') {
-      console.log('🔒 Ya conectado, se ignora nueva búsqueda.');
+    // Mostrar que está buscando
+    Alert.alert(
+      'Buscando partidas...',
+      'Escaneando red local durante 5 segundos',
+      [{ text: 'Esperar', onPress: () => {} }]
+    );
+    
+    // Escanear dispositivos disponibles
+    const devices = await connectionManager.scanForDevices();
+    
+    if (devices.length === 0) {
+      Alert.alert(
+        'No hay partidas',
+        'No se encontraron partidas activas.\n\nAsegúrate de que:\n• El organizador ha pulsado "Iniciar Partida"\n• Ambos dispositivos están en la misma red WiFi',
+        [{ text: 'OK' }]
+      );
       return;
     }
-
-    setIsScanning(true);
-    setFoundDevices([]); // limpiar lista previa
-
-    const devices = await connectionManager.scanForDevices();
-
-    // 🔧 Mostrar solo partidas: nombres que empiecen con ScattergoriesHost_
-    const filtered = devices.filter(d => {
-      if (!d.name) return false;
-      const n = d.name.toLowerCase();
-      return (
-        n.startsWith('scattergorieshost_') ||  // nuevo formato
-        n.includes('pixel') ||                 // teléfonos Pixel
-        n.includes('galaxy') ||                // teléfonos Samsung
-        n.includes('scattergories')            // cualquier otro nombre que contenga la palabra
-      );
-    });
-
-
-    console.log(`🔍 Encontradas ${filtered.length} partidas activas.`);
-    setFoundDevices(filtered);
-
-    if (filtered.length === 0) {
-      Alert.alert(
-        'No se encontraron partidas',
-        'Asegúrate de que el organizador ha iniciado la partida y de que tu Bluetooth está activado.',
-        [{ text: 'OK', onPress: () => setIsScanning(false) }]
-      );
-    }
+    
+    // Si hay dispositivos, mostrar lista
+    Alert.alert(
+      `${devices.length} ${devices.length === 1 ? 'partida encontrada' : 'partidas encontradas'}`,
+      devices.map((d, i) => `${i + 1}. ${d.name} (${d.playersCount} ${d.playersCount === 1 ? 'jugador' : 'jugadores'})`).join('\n'),
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        ...devices.map((device) => ({
+          text: `Unirse a ${device.name}`,
+          onPress: async () => {
+            const connected = await connectionManager.connectToDevice(device.address, playerName);
+            
+            if (connected) {
+              setUserRole('slave');
+              await updateConfig({ isMasterDevice: false });
+              
+              // Escuchar eventos
+              connectionManager.onEvent((event) => {
+                if (event.type === 'PLAYERS_LIST_UPDATE') {
+                  setConnectedPlayers(event.data.players);
+                }
+              });
+              
+              console.log('✅ Conectado a partida');
+            } else {
+              Alert.alert('Error', 'No se pudo conectar. Reintenta.', [{ text: 'OK' }]);
+            }
+          }
+        }))
+      ]
+    );
   };
 
-  const handleDeviceSelect = async (device: { name: string; address: string }) => {
-    console.log('🔗 Intentando conexión con', device.name);
-    setIsScanning(false);
-
-    const connected = await connectionManager.connectToDevice(device.address, bluetoothName);
-
-    if (connected) {
-      setUserRole('slave');
-      setOnlineMode(true);
-      await updateConfig({ isMasterDevice: false });
-
-      connectionManager.onEvent((event) => {
-        if (event.type === 'PLAYERS_LIST_UPDATE') {
-          console.log('📡 Lista de jugadores actualizada (cliente):', event.data.players);
-          setConnectedPlayers(event.data.players);
-        }
-      });
-
-      console.log('✅ Conectado a partida con', device.name);
-    } else {
-      Alert.alert('Error', 'No se pudo conectar al dispositivo.', [
-        { text: 'OK', onPress: () => setIsScanning(true) },
-      ]);
-    }
-  };
-
-
-  const handleCancelarConexion = async () => {
-    await connectionManager.disconnect();
+  const handleCancelarConexion = () => {
     setUserRole('none');
     setConnectedPlayers([]);
-  };
-
-  const handleDesconectar = async () => {
-    await connectionManager.disconnect();
-    setUserRole('none');
-    setConnectedPlayers([]);
+    // TODO: Desconectar conexión
   };
 
   const handleComenzarPartida = () => {
-    const config = getCurrentConfig();
-    
-    // Preparar datos del juego
-    const gameData = {
-      letter: 'A', // TODO: Obtener letra aleatoria
-      listId: config.selectedListId || 1,
-      versionId: config.selectedVersionId,
-      listName: 'Lista 1', // TODO: Obtener nombre real de la lista
-      categories: config.randomMode ? [] : undefined, // TODO: Si randomMode, enviar categorías
-      timerDuration: 180000, // TODO: Obtener de config
-      paperMode: paperMode,
-      randomMode: config.randomMode,
-    };
-    
-    // Enviar evento GAME_START a todos
-    connectionManager.startGame(gameData);
-    
-    // Ir a PantallaJuego
+    // TODO: Enviar evento GAME_START
     navigate('PantallaJuego');
   };
 
@@ -533,11 +455,11 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
 {/* ========== CONTENIDO MODO ONLINE ========== */}
 {onlineMode && userRole === 'none' && (
   <View style={styles.onlineContentContainer}>
-    <Text style={styles.bluetoothNameLabel}>TU NOMBRE PARA CONEXIÓN:</Text>
+    <Text style={styles.conectionNameLabel}>TU NOMBRE PARA CONEXIÓN:</Text>
     <TextInput
-      style={styles.bluetoothNameInput}
-      value={bluetoothName}
-      onChangeText={setBluetoothName}
+      style={styles.conectionNameInput}
+      value={playerName}
+      onChangeText={setPlayerName}
       placeholder="Nombre"
       placeholderTextColor="#999"
     />
@@ -557,7 +479,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     </TouchableOpacity>
     
     <Text style={styles.warningText}>
-      ⚠️ La lista de jugadores se configurará automáticamente al conectar
+      📡 Asegúrate de estar en la misma red WiFi que los demás jugadores
     </Text>
   </View>
 )}
@@ -566,7 +488,8 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
 {onlineMode && userRole === 'master' && (
   <View style={styles.waitingContainer}>
     <Text style={styles.waitingTitle}>ESPERANDO JUGADORES...</Text>
-    <Text style={styles.waitingSubtitle}>Tu nombre: {bluetoothName}</Text>
+    <Text style={styles.waitingSubtitle}>Tu nombre: {playerName}</Text>
+    <Text style={styles.waitingSubtitle}>IP: {connectionManager.getServerIp()}</Text>
     
     <View style={styles.playersList}>
       <Text style={styles.playersListTitle}>Jugadores conectados:</Text>
@@ -628,7 +551,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     
     <TouchableOpacity 
       style={styles.cancelButton}
-      onPress={handleDesconectar}
+      onPress={handleCancelarConexion}
     >
       <Text style={styles.onlineActionButtonText}>🔌 DESCONECTAR</Text>
     </TouchableOpacity>
@@ -640,47 +563,6 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
   <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
     <Text style={styles.continueButtonText}>CONTINUAR</Text>
   </TouchableOpacity>
-)}
-{/* 🔧 LOBBY DE PARTIDAS DISPONIBLES */}
-{isScanning && (
-  <View style={styles.deviceListContainer}>
-    <Text style={styles.deviceListTitle}>PARTIDAS DISPONIBLES</Text>
-
-    <ScrollView style={styles.deviceList}>
-      {foundDevices.length === 0 ? (
-        <Text style={styles.deviceItemEmpty}>Buscando dispositivos...</Text>
-      ) : (
-        foundDevices.map((device) => (
-          <TouchableOpacity
-            key={device.address}
-            style={styles.deviceItem}
-            onPress={() => handleDeviceSelect(device)}
-          >
-            <Text style={styles.deviceName}>
-              🎮 {device.name.replace('ScattergoriesHost_', '')}
-            </Text>
-            <Text style={styles.deviceSub}>{device.address}</Text>
-          </TouchableOpacity>
-        ))
-      )}
-    </ScrollView>
-
-    <View style={styles.deviceActions}>
-      <TouchableOpacity
-        style={[styles.deviceButton, styles.deviceButtonRetry]}
-        onPress={handleUnirsePartida}
-      >
-        <Text style={styles.deviceButtonText}>🔄 Reintentar</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.deviceButton, styles.deviceButtonCancel]}
-        onPress={() => setIsScanning(false)}
-      >
-        <Text style={styles.deviceButtonText}>❌ Cancelar</Text>
-      </TouchableOpacity>
-    </View>
-  </View>
 )}
           </View>
         </TouchableWithoutFeedback>
@@ -927,13 +809,13 @@ const styles = StyleSheet.create({
       borderWidth: 2,
       borderColor: '#1E88E5',
     },
-    bluetoothNameLabel: {
+    conectionNameLabel: {
       fontSize: 14,
       fontWeight: 'bold',
       color: '#F5E6D3',
       marginBottom: 8,
     },
-    bluetoothNameInput: {
+    conectionNameInput: {
       borderWidth: 2,
       borderColor: '#1E88E5',
       borderRadius: 8,
@@ -1038,73 +920,6 @@ const styles = StyleSheet.create({
       textDecorationLine: 'underline',
     },
     // =========================================
-    // 🔧 NUEVOS ESTILOS PARA LOBBY DE PARTIDAS
-deviceListContainer: {
-  backgroundColor: '#2C1810',
-  borderRadius: 12,
-  padding: 20,
-  marginBottom: 20,
-  borderWidth: 2,
-  borderColor: '#1E88E5',
-},
-deviceListTitle: {
-  fontSize: 18,
-  fontWeight: 'bold',
-  color: '#F5E6D3',
-  textAlign: 'center',
-  marginBottom: 12,
-},
-deviceList: {
-  maxHeight: 250,
-  marginBottom: 16,
-},
-deviceItem: {
-  backgroundColor: '#3D2415',
-  borderWidth: 1,
-  borderColor: '#8B6F47',
-  borderRadius: 8,
-  padding: 12,
-  marginBottom: 8,
-},
-deviceName: {
-  fontSize: 16,
-  fontWeight: 'bold',
-  color: '#F5E6D3',
-},
-deviceSub: {
-  fontSize: 12,
-  color: '#CCC',
-},
-deviceItemEmpty: {
-  textAlign: 'center',
-  color: '#AAA',
-  fontStyle: 'italic',
-  paddingVertical: 20,
-},
-deviceActions: {
-  flexDirection: 'row',
-  justifyContent: 'space-around',
-},
-deviceButton: {
-  paddingVertical: 10,
-  paddingHorizontal: 20,
-  borderRadius: 8,
-  alignItems: 'center',
-  flex: 1,
-  marginHorizontal: 4,
-},
-deviceButtonRetry: {
-  backgroundColor: '#1E88E5',
-},
-deviceButtonCancel: {
-  backgroundColor: '#8B0000',
-},
-deviceButtonText: {
-  color: '#FFF',
-  fontWeight: 'bold',
-  textAlign: 'center',
-},
-
 });
 
 export default ConfiguracionPartida;
