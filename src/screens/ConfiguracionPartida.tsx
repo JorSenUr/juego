@@ -10,6 +10,7 @@ import {
   Alert,
   TouchableWithoutFeedback,
   Keyboard,
+  PermissionsAndroid,
 } from 'react-native';
 import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
 import { connectionManager } from '../utils/connectionManager';
@@ -44,7 +45,14 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
   const [playerName, setPlayerName] = useState<string>(config.playerNames[0] || 'Nombre');
   // =====================================================
   
-
+  useEffect(() => {
+    return () => {
+      // Limpiar listener al desmontar
+      if (serverEventListenerRef.current) {
+        connectionManager.removeEventListener(serverEventListenerRef.current);
+      }
+    };
+  }, []);
 
   // ========== FUNCIONES MODO ONLINE ==========
   const toggleOnlineMode = () => {
@@ -101,6 +109,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     await updateConfig({ isMasterDevice: true });
   };
 
+
   const handleUnirsePartida = async () => {
     // Mostrar que está buscando
     Alert.alert(
@@ -109,6 +118,21 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
       [{ text: 'Esperar', onPress: () => {} }]
     );
     
+    // Al inicio de handleUnirsePartida
+    const granted = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+      {
+        title: 'Permiso de ubicación necesario',
+        message: 'Para buscar partidas cercanas necesitamos acceso a la ubicación',
+        buttonPositive: 'OK'
+      }
+    );
+
+    if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+      Alert.alert('Permiso denegado', 'No se puede buscar partidas sin permiso de ubicación');
+      return;
+    }
+
     // Escanear dispositivos disponibles
     const devices = await connectionManager.scanForDevices();
     
@@ -153,14 +177,45 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     );
   };
 
-  const handleCancelarConexion = () => {
+  const handleCancelarConexion = async () => {
+    await connectionManager.disconnect();
+    
+    if (serverEventListenerRef.current) {
+      connectionManager.removeEventListener(serverEventListenerRef.current);
+      serverEventListenerRef.current = null;
+    }
+    
     setUserRole('none');
     setConnectedPlayers([]);
-    // TODO: Desconectar conexión
+    await updateConfig({ isMasterDevice: true }); // Resetear a maestro por defecto
   };
 
-  const handleComenzarPartida = () => {
-    // TODO: Enviar evento GAME_START
+  const handleComenzarPartida = async () => {
+    const config = getCurrentConfig();
+    
+    // Preparar datos del juego
+    const letter = 'A'; // TODO: Esto debería ser aleatorio basado en availableLetters
+    const listId = config.selectedListId;
+    const versionId = config.selectedVersionId;
+    const listName = "Lista 1"; // TODO: Obtener nombre real de la lista
+    
+    // Obtener duración del timer
+    const minMs = config.timerMinMinutes * 60 * 1000;
+    const maxMs = config.timerMaxMinutes * 60 * 1000;
+    const timerDuration = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+    
+    // Enviar evento GAME_START
+    connectionManager.startGame({
+      letter,
+      listId,
+      versionId,
+      listName,
+      timerDuration,
+      paperMode: config.paperMode,
+      randomMode: config.randomMode
+    });
+    
+    // Navegar a PantallaJuego
     navigate('PantallaJuego');
   };
 

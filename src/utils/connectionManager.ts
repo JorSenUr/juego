@@ -176,16 +176,16 @@ class ConnectionManager {
       
       // Publicar servicio mDNS
       this.zeroconf.publishService(
-        'scattergories',
-        '_scattergories._tcp',
-        'local',
-        SERVER_PORT,
+        '_scattergories._tcp',  // type
+        'tcp',                   // protocol
+        'local.',                // domain
+        playerName,              // name
+        SERVER_PORT,             // port
         {
-          name: playerName,
           players: '1'
         }
-      );
-      
+      ); 
+
       console.log(`✅ Servidor iniciado en ${this.serverIp}:${SERVER_PORT}`);
       console.log(`📡 Servicio mDNS publicado: Partida de ${playerName}`);
       return true;
@@ -476,15 +476,15 @@ async scanForDevices(): Promise<Array<{ name: string; address: string; playersCo
     
     // Actualizar servicio mDNS con número de jugadores
     if (this.isServer) {
-      this.zeroconf.unpublishService('scattergories');
+      this.zeroconf.unpublishService(this.myName);
       this.zeroconf.publishService(
-        'scattergories',
-        '_scattergories._tcp',
-        'local',
-        SERVER_PORT,
+        '_scattergories._tcp',  // type
+        'tcp',                   // protocol
+        'local.',                // domain
+        this.myName,             // name
+        SERVER_PORT,             // port
         {
-          name: this.myName,
-          players: this.connectedPlayers.length.toString()
+          players: String(this.connectedPlayers.length)
         }
       );
     }
