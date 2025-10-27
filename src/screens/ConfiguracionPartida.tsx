@@ -10,7 +10,6 @@ import {
   Alert,
   TouchableWithoutFeedback,
   Keyboard,
-  PermissionsAndroid,
 } from 'react-native';
 import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
 import { connectionManager } from '../utils/connectionManager';
@@ -118,21 +117,6 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
       [{ text: 'Esperar', onPress: () => {} }]
     );
     
-    // Al inicio de handleUnirsePartida
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-      {
-        title: 'Permiso de ubicación necesario',
-        message: 'Para buscar partidas cercanas necesitamos acceso a la ubicación',
-        buttonPositive: 'OK'
-      }
-    );
-
-    if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-      Alert.alert('Permiso denegado', 'No se puede buscar partidas sin permiso de ubicación');
-      return;
-    }
-
     // Escanear dispositivos disponibles
     const devices = await connectionManager.scanForDevices();
     
