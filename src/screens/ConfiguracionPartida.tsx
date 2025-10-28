@@ -11,6 +11,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   PermissionsAndroid,
+  Platform,
 } from 'react-native';
 import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
 import { connectionManager } from '../utils/connectionManager';
@@ -111,26 +112,49 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
 
 
   const handleUnirsePartida = async () => {
+    // Solicitar permiso según versión de Android
+    if (Platform.OS === 'android') {
+      try {
+        let granted;
+        
+        // Android 13+ usa NEARBY_WIFI_DEVICES
+        if (Platform.Version >= 33) {
+          granted = await PermissionsAndroid.request(
+            'android.permission.NEARBY_WIFI_DEVICES' as any,
+            {
+              title: 'Permiso para buscar dispositivos cercanos',
+              message: 'Para buscar partidas en la red WiFi local.',
+              buttonPositive: 'Permitir',
+              buttonNegative: 'Cancelar',
+            }
+          );
+        } else {
+          // Android 12 y anteriores usan ACCESS_FINE_LOCATION
+          granted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+            {
+              title: 'Permiso de ubicación necesario',
+              message: 'Para buscar partidas cercanas en la red WiFi necesitamos acceso a la ubicación.',
+              buttonPositive: 'Permitir',
+              buttonNegative: 'Cancelar',
+            }
+          );
+        }
 
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-      {
-        title: 'Permiso de ubicación necesario',
-        message: 'Para buscar partidas cercanas necesitamos acceso a la ubicación',
-        buttonPositive: 'OK'
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert(
+            'Permiso denegado',
+            'Sin el permiso necesario no podemos buscar partidas en la red local.',
+            [{ text: 'Entendido' }]
+          );
+          return;
+        }
+      } catch (error) {
+        console.error('Error solicitando permiso:', error);
+        Alert.alert('Error', 'No se pudo solicitar el permiso necesario.');
+        return;
       }
-    );
-
-    if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-      Alert.alert('Permiso denegado', 'No se puede buscar partidas sin permiso de ubicación');
-      return;
     }
-    // Mostrar que está buscando
-    Alert.alert(
-      'Buscando partidas...',
-      'Escaneando red local durante 5 segundos',
-      [{ text: 'Esperar', onPress: () => {} }]
-    );
     
     // Escanear dispositivos disponibles
     const devices = await connectionManager.scanForDevices();
@@ -401,27 +425,111 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
       >
         <TouchableWithoutFeedback onPress={handleOutsidePress}>
           <View>
-                    
-          {/* ========== TOGGLE CONECTAR DISPOSITIVOS ========== */}
-          <TouchableOpacity 
-            style={[
-              styles.onlineModeButton,
-              onlineMode && styles.onlineModeButtonActive
-            ]}
-            onPress={toggleOnlineMode}
-            disabled={userRole !== 'none'} // Bloquear si ya está en un rol
-          >
-            <Text style={styles.onlineModeIcon}>📡</Text>
-            <Text style={[
-              styles.onlineModeText,
-              onlineMode && styles.onlineModeTextActive
-            ]}>
-              CONECTAR DISPOSITIVOS {onlineMode && '✓'}
-            </Text>
-          </TouchableOpacity>
 
-            {/* ========== MODO PAPEL Y BOLI (condicional) ========== */}
-            {(!onlineMode || userRole === 'master') && (
+          {/* ========== CONTENIDO MODO OFFLINE ========== */}
+          {!onlineMode && (
+            <>
+              {/* 1. DISPOSITIVO PRINCIPAL/SECUNDARIO */}
+              {numberOfPlayers > 1 && (
+                <TouchableOpacity 
+                  style={[
+                    styles.deviceRoleButton,
+                    isMasterDevice && styles.deviceRoleButtonActive
+                  ]}
+                  onPress={toggleDeviceRole}
+                >
+                  <Text style={styles.deviceRoleIcon}>📱</Text>
+                  <Text style={[
+                    styles.deviceRoleText,
+                    isMasterDevice && styles.deviceRoleTextActive
+                  ]}>
+                    {isMasterDevice ? 'DISPOSITIVO PRINCIPAL ✓' : 'DISPOSITIVO SECUNDARIO'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {/* 2. JUGADORES */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>JUGADORES</Text>
+                
+                <View style={styles.playerCountRow}>
+                  <TouchableOpacity 
+                    style={[styles.playerButton, numberOfPlayers <= 1 && styles.disabledButton]}
+                    onPress={removePlayer}
+                    disabled={numberOfPlayers <= 1}
+                  >
+                    <Text style={styles.playerButtonText}>-</Text>
+                  </TouchableOpacity>
+                  
+                  <Text style={styles.playerCount}>
+                    {numberOfPlayers === 1 ? '1 JUGADOR' : `${numberOfPlayers} JUGADORES`}
+                  </Text>
+                  
+                  <TouchableOpacity 
+                    style={[styles.playerButton, numberOfPlayers >= 6 && styles.disabledButton]}
+                    onPress={addPlayer}
+                    disabled={numberOfPlayers >= 6}
+                  >
+                    <Text style={styles.playerButtonText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {playerNames.slice(0, numberOfPlayers).map((name, index) => {
+                  const availableFavorites = getAvailableFavorites(index);
+                  const showDropdown = showDropdownIndex === index && availableFavorites.length > 0;
+                  
+                  return (
+                    <View key={index} style={styles.nameInputContainer}>
+                      <View style={styles.nameHeaderRow}>
+                        <Text style={styles.nameLabel}>
+                          {numberOfPlayers === 1 ? 'TU NOMBRE:' : 
+                          index === 0 ? 'TU NOMBRE:' : `JUGADOR ${index + 1}:`}
+                        </Text>
+                        
+                        <TouchableOpacity
+                          style={styles.favoriteButton}
+                          onPress={() => toggleFavorite(name)}
+                          disabled={!name || name.trim() === ''}
+                        >
+                          <Text style={styles.favoriteIcon}>
+                            {isFavorite(name) ? '⭐' : '☆'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>                    
+                      <View style={styles.inputWrapper}>
+                        <TextInput
+                          ref={(ref) => inputRefs.current[index] = ref}
+                          style={styles.nameInput}
+                          value={name}
+                          onChangeText={(text) => handlePlayerNameChange(index, text)}
+                          onFocus={() => handleInputPress(index)}
+                          placeholder={index === 0 ? 'Introduce tu nombre' : `Jugador ${index + 1}`}
+                          placeholderTextColor="#999"
+                        />
+                        
+                        {showDropdown && (
+                          <View style={styles.dropdown}>
+                            <View style={styles.dropdownContent}>
+                              {availableFavorites.map((favorite, idx) => (
+                                <TouchableOpacity
+                                  key={idx}
+                                  style={styles.dropdownItem}
+                                  onPress={() => selectFavoriteForPlayer(index, favorite)}
+                                >
+                                  <Text style={styles.dropdownItemIcon}>⭐</Text>
+                                  <Text style={styles.dropdownItemText}>{favorite}</Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* 3. MODO PAPEL Y BOLI */}
               <TouchableOpacity 
                 style={[
                   styles.paperModeButton,
@@ -437,224 +545,140 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
                   MODO PAPEL Y BOLI  {paperMode && '✓'}
                 </Text>
               </TouchableOpacity>
-            )}
+            </>
+          )}
 
-{/* ========== CONTENIDO MODO OFFLINE ========== */}
-{!onlineMode && (
-  <>
-    {/* Jugadores */}
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>JUGADORES</Text>
-      
-      <View style={styles.playerCountRow}>
-        <TouchableOpacity 
-          style={[styles.playerButton, numberOfPlayers <= 1 && styles.disabledButton]}
-          onPress={removePlayer}
-          disabled={numberOfPlayers <= 1}
-        >
-          <Text style={styles.playerButtonText}>-</Text>
-        </TouchableOpacity>
-        
-        <Text style={styles.playerCount}>
-          {numberOfPlayers === 1 ? '1 JUGADOR' : `${numberOfPlayers} JUGADORES`}
-        </Text>
-        
-        <TouchableOpacity 
-          style={[styles.playerButton, numberOfPlayers >= 6 && styles.disabledButton]}
-          onPress={addPlayer}
-          disabled={numberOfPlayers >= 6}
-        >
-          <Text style={styles.playerButtonText}>+</Text>
-        </TouchableOpacity>
-      </View>
+          {/* 4. CONECTAR DISPOSITIVOS */}
+          <TouchableOpacity 
+            style={[
+              styles.onlineModeButton,
+              onlineMode && styles.onlineModeButtonActive
+            ]}
+            onPress={toggleOnlineMode}
+            disabled={userRole !== 'none'}
+          >
+            <Text style={styles.onlineModeIcon}>📡</Text>
+            <Text style={[
+              styles.onlineModeText,
+              onlineMode && styles.onlineModeTextActive
+            ]}>
+              CONECTAR DISPOSITIVOS {onlineMode && '✓'}
+            </Text>
+          </TouchableOpacity>
 
-      {playerNames.slice(0, numberOfPlayers).map((name, index) => {
-        const availableFavorites = getAvailableFavorites(index);
-        const showDropdown = showDropdownIndex === index && availableFavorites.length > 0;
-        
-        return (
-          <View key={index} style={styles.nameInputContainer}>
-            <View style={styles.nameHeaderRow}>
-              <Text style={styles.nameLabel}>
-                {numberOfPlayers === 1 ? 'TU NOMBRE:' : 
-                 index === 0 ? 'TU NOMBRE:' : `JUGADOR ${index + 1}:`}
-              </Text>
-              
-              <TouchableOpacity
-                style={styles.favoriteButton}
-                onPress={() => toggleFavorite(name)}
-                disabled={!name || name.trim() === ''}
-              >
-                <Text style={styles.favoriteIcon}>
-                  {isFavorite(name) ? '⭐' : '☆'}
-                </Text>
-              </TouchableOpacity>
-            </View>                    
-            <View style={styles.inputWrapper}>
+          {/* ========== CONTENIDO MODO ONLINE ========== */}
+          {onlineMode && userRole === 'none' && (
+            <View style={styles.onlineContentContainer}>
+              <Text style={styles.conectionNameLabel}>TU NOMBRE PARA CONEXIÓN:</Text>
               <TextInput
-                ref={(ref) => inputRefs.current[index] = ref}
-                style={styles.nameInput}
-                value={name}
-                onChangeText={(text) => handlePlayerNameChange(index, text)}
-                onFocus={() => handleInputPress(index)}
-                placeholder={index === 0 ? 'Introduce tu nombre' : `Jugador ${index + 1}`}
+                style={styles.conectionNameInput}
+                value={playerName}
+                onChangeText={setPlayerName}
+                placeholder="Nombre"
                 placeholderTextColor="#999"
               />
               
-              {showDropdown && (
-                <View style={styles.dropdown}>
-                  <View style={styles.dropdownContent}>
-                    {availableFavorites.map((favorite, idx) => (
-                      <TouchableOpacity
-                        key={idx}
-                        style={styles.dropdownItem}
-                        onPress={() => selectFavoriteForPlayer(index, favorite)}
-                      >
-                        <Text style={styles.dropdownItemIcon}>⭐</Text>
-                        <Text style={styles.dropdownItemText}>{favorite}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              )}
+              <TouchableOpacity 
+                style={styles.onlineActionButton}
+                onPress={handleIniciarPartida}
+              >
+                <Text style={styles.onlineActionButtonText}>🎮 INICIAR PARTIDA</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.onlineActionButton}
+                onPress={handleUnirsePartida}
+              >
+                <Text style={styles.onlineActionButtonText}>📱 UNIRME A PARTIDA</Text>
+              </TouchableOpacity>
+              
+              <Text style={styles.warningText}>
+                📡 Asegúrate de estar en la misma red WiFi que los demás jugadores
+              </Text>
             </View>
-          </View>
-        );
-      })}
-    </View>
+          )}
 
-    {numberOfPlayers > 1 && (
-      <TouchableOpacity 
-        style={[
-          styles.deviceRoleButton,
-          isMasterDevice && styles.deviceRoleButtonActive
-        ]}
-        onPress={toggleDeviceRole}
-      >
-        <Text style={styles.deviceRoleIcon}>📱</Text>
-        <Text style={[
-          styles.deviceRoleText,
-          isMasterDevice && styles.deviceRoleTextActive
-        ]}>
-          {isMasterDevice ? 'DISPOSITIVO PRINCIPAL ✓' : 'DISPOSITIVO SECUNDARIO'}
-        </Text>
-      </TouchableOpacity>
-    )}
-  </>
-)}
+          {/* ========== MAESTRO ESPERANDO JUGADORES ========== */}
+          {onlineMode && userRole === 'master' && (
+            <View style={styles.waitingContainer}>
+              <Text style={styles.waitingTitle}>ESPERANDO JUGADORES...</Text>
+              <Text style={styles.waitingSubtitle}>Tu nombre: {playerName}</Text>
+              <Text style={styles.waitingSubtitle}>IP: {connectionManager.getServerIp()}</Text>
+              
+              <View style={styles.playersList}>
+                <Text style={styles.playersListTitle}>Jugadores conectados:</Text>
+                {connectedPlayers.map((player, index) => (
+                  <Text key={index} style={styles.playerItem}>
+                    {index === 0 ? '✓ Tú (organizador)' : `✓ ${player}`}
+                  </Text>
+                ))}
+                {connectedPlayers.length === 1 && (
+                  <Text style={styles.playerItem}>⏳ Esperando...</Text>
+                )}
+              </View>
 
-{/* ========== CONTENIDO MODO ONLINE ========== */}
-{onlineMode && userRole === 'none' && (
-  <View style={styles.onlineContentContainer}>
-    <Text style={styles.conectionNameLabel}>TU NOMBRE PARA CONEXIÓN:</Text>
-    <TextInput
-      style={styles.conectionNameInput}
-      value={playerName}
-      onChangeText={setPlayerName}
-      placeholder="Nombre"
-      placeholderTextColor="#999"
-    />
-    
-    <TouchableOpacity 
-      style={styles.onlineActionButton}
-      onPress={handleIniciarPartida}
-    >
-      <Text style={styles.onlineActionButtonText}>🎮 INICIAR PARTIDA</Text>
-    </TouchableOpacity>
-    
-    <TouchableOpacity 
-      style={styles.onlineActionButton}
-      onPress={handleUnirsePartida}
-    >
-      <Text style={styles.onlineActionButtonText}>📱 UNIRME A PARTIDA</Text>
-    </TouchableOpacity>
-    
-    <Text style={styles.warningText}>
-      📡 Asegúrate de estar en la misma red WiFi que los demás jugadores
-    </Text>
-  </View>
-)}
+              <TouchableOpacity 
+                style={styles.configButtonDiscrete}
+                onPress={() => navigate('Configuracion', { from: 'ConfiguracionPartida' })}
+              >
+                <Text style={styles.configButtonDiscreteText}>⚙️ Ajustar configuración</Text>
+              </TouchableOpacity>
 
-{/* ========== MAESTRO ESPERANDO JUGADORES ========== */}
-{onlineMode && userRole === 'master' && (
-  <View style={styles.waitingContainer}>
-    <Text style={styles.waitingTitle}>ESPERANDO JUGADORES...</Text>
-    <Text style={styles.waitingSubtitle}>Tu nombre: {playerName}</Text>
-    <Text style={styles.waitingSubtitle}>IP: {connectionManager.getServerIp()}</Text>
-    
-    <View style={styles.playersList}>
-      <Text style={styles.playersListTitle}>Jugadores conectados:</Text>
-      {connectedPlayers.map((player, index) => (
-        <Text key={index} style={styles.playerItem}>
-          {index === 0 ? '✓ Tú (organizador)' : `✓ ${player}`}
-        </Text>
-      ))}
-      {connectedPlayers.length === 1 && (
-        <Text style={styles.playerItem}>⏳ Esperando...</Text>
-      )}
-    </View>
+              <TouchableOpacity 
+                style={[
+                  styles.startGameButton,
+                  connectedPlayers.length < 2 && styles.startGameButtonDisabled
+                ]}
+                onPress={handleComenzarPartida}
+                disabled={connectedPlayers.length < 2}
+              >
+                <Text style={styles.onlineActionButtonText}>🚀 COMENZAR PARTIDA</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={handleCancelarConexion}
+              >
+                <Text style={styles.onlineActionButtonText}>❌ CANCELAR</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
-    <TouchableOpacity 
-      style={styles.configButtonDiscrete}
-      onPress={() => navigate('Configuracion', { from: 'ConfiguracionPartida' })}
-    >
-      <Text style={styles.configButtonDiscreteText}>⚙️ Ajustar configuración</Text>
-    </TouchableOpacity>
+          {/* ========== ESCLAVO CONECTADO ========== */}
+          {onlineMode && userRole === 'slave' && (
+            <View style={styles.waitingContainer}>
+              <Text style={styles.waitingTitle}>CONECTADO A PARTIDA</Text>
+              <Text style={styles.waitingSubtitle}>Organizador: {connectedPlayers[0]}</Text>
+              
+              <View style={styles.playersList}>
+                <Text style={styles.playersListTitle}>Jugadores conectados:</Text>
+                {connectedPlayers.map((player, index) => (
+                  <Text key={index} style={styles.playerItem}>
+                    ✓ {player}
+                  </Text>
+                ))}
+              </View>
+              
+              <Text style={styles.warningText}>
+                Esperando que el organizador inicie la partida...
+              </Text>
+              
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={handleCancelarConexion}
+              >
+                <Text style={styles.onlineActionButtonText}>🔌 DESCONECTAR</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
-    <TouchableOpacity 
-      style={[
-        styles.startGameButton,
-        connectedPlayers.length < 2 && styles.startGameButtonDisabled
-      ]}
-      onPress={handleComenzarPartida}
-      disabled={connectedPlayers.length < 2}
-    >
-      <Text style={styles.onlineActionButtonText}>🚀 COMENZAR PARTIDA</Text>
-    </TouchableOpacity>
-    
-    <TouchableOpacity 
-      style={styles.cancelButton}
-      onPress={handleCancelarConexion}
-    >
-      <Text style={styles.onlineActionButtonText}>❌ CANCELAR</Text>
-    </TouchableOpacity>
-  </View>
-)}
+          {/* 5. CONTINUAR - solo visible en modo offline */}
+          {!onlineMode && (
+            <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
+              <Text style={styles.continueButtonText}>CONTINUAR</Text>
+            </TouchableOpacity>
+          )}
 
-{/* ========== ESCLAVO CONECTADO ========== */}
-{onlineMode && userRole === 'slave' && (
-  <View style={styles.waitingContainer}>
-    <Text style={styles.waitingTitle}>CONECTADO A PARTIDA</Text>
-    <Text style={styles.waitingSubtitle}>Organizador: {connectedPlayers[0]}</Text>
-    
-    <View style={styles.playersList}>
-      <Text style={styles.playersListTitle}>Jugadores conectados:</Text>
-      {connectedPlayers.map((player, index) => (
-        <Text key={index} style={styles.playerItem}>
-          ✓ {player}
-        </Text>
-      ))}
-    </View>
-    
-    <Text style={styles.warningText}>
-      Esperando que el organizador inicie la partida...
-    </Text>
-    
-    <TouchableOpacity 
-      style={styles.cancelButton}
-      onPress={handleCancelarConexion}
-    >
-      <Text style={styles.onlineActionButtonText}>🔌 DESCONECTAR</Text>
-    </TouchableOpacity>
-  </View>
-)}
-
-{/* Botón CONTINUAR solo visible en modo offline */}
-{!onlineMode && (
-  <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-    <Text style={styles.continueButtonText}>CONTINUAR</Text>
-  </TouchableOpacity>
-)}
           </View>
         </TouchableWithoutFeedback>
       </ScrollView>

@@ -1,9 +1,11 @@
 // Gestor de conexiones WiFi Hotspot + WebSocket para modo multijugador
 
 import TcpSocket from 'react-native-tcp-socket';
-import { Platform, PermissionsAndroid } from 'react-native';
+import { Platform, PermissionsAndroid, NativeModules } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import Zeroconf from 'react-native-zeroconf';
+
+const { MulticastLock } = NativeModules;
 
 
 // ========== TIPOS DE EVENTOS ==========
@@ -200,6 +202,16 @@ async scanForDevices(): Promise<Array<{ name: string; address: string; playersCo
   return new Promise(async (resolve) => {
     this.discoveredServices.clear();
     
+    // Activar multicast lock en Android
+    if (Platform.OS === 'android' && MulticastLock) {
+      try {
+        await MulticastLock.acquire();
+        console.log('✅ Multicast lock activado');
+      } catch (error) {
+        console.error('❌ Error activando multicast lock:', error);
+      }
+    }
+    
     // Solicitar permisos si es Android
     if (Platform.OS === 'android') {
       try {
@@ -252,7 +264,7 @@ async scanForDevices(): Promise<Array<{ name: string; address: string; playersCo
       this.zeroconf.scan('_scattergories._tcp', 'local');
       
       // Esperar 5 segundos y retornar resultados
-      setTimeout(() => {
+      setTimeout(async () => {
         this.zeroconf.stop();
         
         const devices = Array.from(this.discoveredServices.values()).map(service => ({
@@ -260,6 +272,17 @@ async scanForDevices(): Promise<Array<{ name: string; address: string; playersCo
           address: service.addresses[0], // Primera IP encontrada
           playersCount: 1 // TODO: Obtener del txt record
         }));
+        
+        console.log('📱 Dispositivos encontrados:', devices.length);
+        // Liberar multicast lock
+        if (Platform.OS === 'android' && MulticastLock) {
+          try {
+            await MulticastLock.release();
+            console.log('✅ Multicast lock liberado');
+          } catch (error) {
+            console.error('❌ Error liberando multicast lock:', error);
+          }
+        }
         
         console.log('📱 Dispositivos encontrados:', devices.length);
         resolve(devices);
