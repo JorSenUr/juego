@@ -106,10 +106,13 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     setPlayerName(trimmedName);
     const currentPlayers = connectionManager.getConnectedPlayers();
     setConnectedPlayers(currentPlayers.length > 0 ? [...currentPlayers] : [trimmedName]);
-    await updateConfig({ isMasterDevice: true });
+    await updateConfig({ 
+      isMasterDevice: true,
+      onlineGameInProgress: true,
+    });
   };
 
-  const handleConectarManual = async (identifier: string) => {
+  const handleUnirseAPartida = async (identifier: string) => {
     if (!identifier || identifier.trim() === '') {
       Alert.alert('Error', 'Debes introducir el identificador del organizador');
       return;
@@ -131,7 +134,11 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     
     if (connected) {
       setUserRole('slave');
-      await updateConfig({ isMasterDevice: false });
+      await updateConfig({
+        isMasterDevice: false,
+        onlineGameInProgress: true, // ✅ Añadir esto también
+      });
+
       
       // Escuchar eventos
       connectionManager.onEvent((event) => {
@@ -156,7 +163,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     }
   };
 
-  const handleCancelarConexion = async () => {
+  const handleAbandonarPartida = async () => {
     await connectionManager.disconnect();
     
     if (serverEventListenerRef.current) {
@@ -169,7 +176,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     await updateConfig({ isMasterDevice: true }); // Resetear a maestro por defecto
   };
 
-  const handleComenzarPartida = async () => {
+  const handleIniciarJuego = async () => {
     const config = getCurrentConfig();
     
     // Preparar datos del juego
@@ -563,7 +570,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
                       styles.onlineActionButton,
                       (!serverIdentifier.trim()) && styles.onlineActionButtonDisabled
                     ]}
-                    onPress={() => handleConectarManual(serverIdentifier)}
+                    onPress={() => handleUnirseAPartida(serverIdentifier)}
                     disabled={!serverIdentifier.trim()}
                   >
                     <Text style={styles.onlineActionButtonText}>🔗 CONECTAR</Text>
@@ -613,7 +620,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
                   styles.startGameButton,
                   connectedPlayers.length < 2 && styles.startGameButtonDisabled
                 ]}
-                onPress={handleComenzarPartida}
+                onPress={handleIniciarJuego}
                 disabled={connectedPlayers.length < 2}
               >
                 <Text style={styles.onlineActionButtonText}>🚀 COMENZAR PARTIDA</Text>
@@ -621,7 +628,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
               
               <TouchableOpacity 
                 style={styles.cancelButton}
-                onPress={handleCancelarConexion}
+                onPress={handleAbandonarPartida}
               >
                 <Text style={styles.onlineActionButtonText}>❌ CANCELAR</Text>
               </TouchableOpacity>
@@ -649,7 +656,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
               
               <TouchableOpacity 
                 style={styles.cancelButton}
-                onPress={handleCancelarConexion}
+                onPress={handleAbandonarPartida}
               >
                 <Text style={styles.onlineActionButtonText}>🔌 DESCONECTAR</Text>
               </TouchableOpacity>

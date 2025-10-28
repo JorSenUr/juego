@@ -8,7 +8,7 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import { updateConfig } from '../utils/gameConfig';
+import { updateConfig, getCurrentConfig } from '../utils/gameConfig';
 import { isGameInProgress, finalizeCurrentGame } from '../data/storage';
 
 interface MenuPrincipalProps {
@@ -18,14 +18,31 @@ interface MenuPrincipalProps {
 
 const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
   const [hasGameInProgress, setHasGameInProgress] = useState(false);
+  const [isOnlineGame, setIsOnlineGame] = useState(false);
+  const [isMasterDevice, setIsMasterDevice] = useState(false);
+
 
   useEffect(() => {
     checkGameStatus();
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkGameStatus();
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const checkGameStatus = async () => {
     const inProgress = await isGameInProgress();
     setHasGameInProgress(inProgress);
+    
+  const config = getCurrentConfig();
+  setIsOnlineGame(config.onlineGameInProgress || false);
+  setIsMasterDevice(config.isMasterDevice || false);
+
+    
+    //console.log('🔍 Estado:', { inProgress, onlineGameInProgress: config.onlineGameInProgress });
   };
 
   const handleJuegoRapido = async () => {
@@ -36,6 +53,13 @@ const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
   const handleComenzarPartida = async () => {
     await updateConfig({ freeMode: false });
     
+    // Si hay partida online, ir directo a PantallaJuego
+    if (isOnlineGame) {
+      navigate('PantallaJuego');
+      return;
+    }
+    
+    // Si no, comportamiento normal
     if (hasGameInProgress) {
       navigate('PantallaJuego');
     } else {
@@ -53,6 +77,9 @@ const handleTerminarPartida = () => {
         text: 'TERMINAR', 
         onPress: async () => {
           await finalizeCurrentGame();
+          await updateConfig({ onlineGameInProgress: false });
+          //setHasGameInProgress(false);
+          //setIsOnlineGame(false);
           Alert.alert(
             'Partida Terminada',
             'La partida se ha guardado en el historial.',
@@ -92,23 +119,23 @@ const handleTerminarPartida = () => {
             onPress={handleComenzarPartida}
           >
             <Text style={styles.buttonText}>
-              {hasGameInProgress ? 'Continuar Partida' : 'Comenzar Partida'}
+              {(hasGameInProgress || isOnlineGame) ? 'Continuar Partida' : 'Partida Nueva'}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
             style={[
               styles.button, 
-              hasGameInProgress ? styles.redBrightButton : styles.disabledButton
+              (hasGameInProgress || isOnlineGame) ? styles.redBrightButton : styles.disabledButton
             ]}
             onPress={handleTerminarPartida}
-            disabled={!hasGameInProgress}
+            disabled={!hasGameInProgress && !isOnlineGame}
           >
             <Text style={[
               styles.buttonText,
               !hasGameInProgress && styles.disabledButtonText
             ]}>
-              Terminar Partida
+              {isOnlineGame ? 'Abandonar Partida' : 'Terminar Partida'}
             </Text>
           </TouchableOpacity>
 

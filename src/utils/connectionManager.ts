@@ -72,6 +72,19 @@ export type GameEvent =
       data: {
         playerName: string;
       };
+    }
+    | {
+      type: 'HEARTBEAT_PING';
+      data: {
+        timestamp: number;
+      };
+    }
+  | {
+      type: 'HEARTBEAT_PONG';
+      data: {
+        playerName: string;
+        timestamp: number;
+      };
     };
 
 type EventCallback = (event: GameEvent) => void;
@@ -90,7 +103,10 @@ class ConnectionManager {
   private eventCallbacks: EventCallback[] = [];
   private myName: string = '';
   private serverIp: string = '';
-
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private lastHeartbeatReceived: Map<string, number> = new Map();
+  private readonly HEARTBEAT_INTERVAL = 10000; // 10 segundos
+  private readonly HEARTBEAT_TIMEOUT = 30000; // 30 segundos
 
   // ========== OBTENER IP LOCAL ==========
   private async getLocalIpAddress(): Promise<string> {
@@ -128,29 +144,32 @@ class ConnectionManager {
       this.server = TcpSocket.createServer((socket: any) => {
         console.log('✅ Cliente conectado desde:', socket.address());
         
-        socket.on('data', (data: any) => {
-          try {
-            const message = data.toString('utf8');
-            const event: GameEvent = JSON.parse(message);
-            
-            console.log('📩 Mensaje recibido:', event.type);
-            
-            // Si es PLAYER_JOINED, guardar el socket con el nombre del jugador
-            if (event.type === 'PLAYER_JOINED') {
-              const playerName = event.data.playerName;
-              this.clients.set(playerName, socket);
-              this.handlePlayerJoined(playerName);
-            }
-            
-            // Procesar evento
-            this.handleReceivedEvent(event);
-            
-            // Notificar callbacks
-            this.eventCallbacks.forEach(callback => callback(event));
-          } catch (error) {
-            console.error('❌ Error procesando mensaje:', error);
+  let buffer = '';
+  socket.on('data', (data: any) => {
+    try {
+      buffer += data.toString('utf8');
+      const messages = buffer.split('\n');
+      buffer = messages.pop() || ''; // Guardar mensaje incompleto
+      
+      messages.forEach(message => {
+        if (message.trim()) {
+          const event: GameEvent = JSON.parse(message);
+          console.log(`📩 Mensaje recibido: ${event.type}`);
+          
+          if (event.type === 'PLAYER_JOINED') {
+            const playerName = event.data.playerName;
+            this.clients.set(playerName, socket);
+            this.handlePlayerJoined(playerName);
           }
-        });
+          
+          this.handleReceivedEvent(event);
+          this.eventCallbacks.forEach(callback => callback(event));
+        }
+      });
+    } catch (error) {
+      console.error('❌ Error procesando mensaje:', error);
+    }
+  });
         
         socket.on('error', (error: any) => {
           console.error('❌ Error en socket:', error);
@@ -170,7 +189,7 @@ class ConnectionManager {
       });
 
       this.server.listen({ port: SERVER_PORT, host: '0.0.0.0' });
-      
+      this.startHeartbeat();
       return true;
     } catch (error) {
       console.error('❌ Error al iniciar servidor:', error);
@@ -202,18 +221,22 @@ class ConnectionManager {
         }
       );
 
+      let buffer = '';
       this.clientSocket.on('data', (data: any) => {
         try {
-          const message = data.toString('utf8');
-          const event: GameEvent = JSON.parse(message);
+          buffer += data.toString('utf8');
+          const messages = buffer.split('\n');
+          buffer = messages.pop() || '';
           
-          console.log('📩 Mensaje recibido:', event.type);
-          
-          // Procesar evento
-          this.handleReceivedEvent(event);
-          
-          // Notificar callbacks
-          this.eventCallbacks.forEach(callback => callback(event));
+          messages.forEach(message => {
+            if (message.trim()) {
+              const event: GameEvent = JSON.parse(message);
+              console.log('📩 Mensaje recibido:', event.type);
+              
+              this.handleReceivedEvent(event);
+              this.eventCallbacks.forEach(callback => callback(event));
+            }
+          });
         } catch (error) {
           console.error('❌ Error procesando mensaje:', error);
         }
@@ -236,6 +259,24 @@ class ConnectionManager {
 
   // ========== MANEJO DE EVENTOS ==========
   private handleReceivedEvent(event: GameEvent) {
+    // ========== HEARTBEAT (FUNCIONA PARA AMBOS) ==========
+    // Responder a heartbeat ping (ESCLAVO)
+    if (event.type === 'HEARTBEAT_PING' && !this.isServer) {
+      this.sendEvent({
+        type: 'HEARTBEAT_PONG',
+        data: {
+          playerName: this.myName,
+          timestamp: Date.now()
+        }
+      });
+    }
+    
+    // Procesar heartbeat pong (MASTER)
+    if (event.type === 'HEARTBEAT_PONG' && this.isServer) {
+      this.lastHeartbeatReceived.set(event.data.playerName, Date.now());
+    }
+    
+    // ========== EVENTOS DEL MASTER ==========
     if (this.isServer) {
       switch (event.type) {
         case 'SCORE_SUBMIT':
@@ -244,6 +285,7 @@ class ConnectionManager {
       }
     }
     
+    // ========== EVENTOS DEL ESCLAVO ==========
     if (!this.isServer) {
       switch (event.type) {
         case 'PLAYERS_LIST_UPDATE':
@@ -269,6 +311,8 @@ class ConnectionManager {
     if (this.gameState === 'waiting') {
       if (!this.connectedPlayers.includes(playerName)) {
         this.connectedPlayers.push(playerName);
+        // NUEVO: Inicializar heartbeat inmediatamente
+        this.lastHeartbeatReceived.set(playerName, Date.now());
         this.broadcastPlayersList();
         console.log('✅ Jugador añadido:', playerName);
       }
@@ -348,14 +392,14 @@ class ConnectionManager {
 
   // ========== ENVÍO DE MENSAJES ==========
   sendEvent(event: GameEvent) {
-    const message = JSON.stringify(event);
+    const message = JSON.stringify(event) + '\n';
     
     if (this.isServer) {
       // Enviar a todos los clientes conectados
       this.clients.forEach((socket, playerName) => {
         try {
           socket.write(message);
-          console.log('📤 Evento enviado:', event.type, 'a', playerName);
+          console.log(`📤 Evento enviado: ${event.type} a ${playerName}`);
         } catch (error) {
           console.error('❌ Error al enviar a', playerName, error);
         }
@@ -365,9 +409,9 @@ class ConnectionManager {
       if (this.clientSocket) {
         try {
           this.clientSocket.write(message);
-          console.log('📤 Evento enviado:', event.type);
+          console.log(`📤 Evento enviado: ${event.type}`);
         } catch (error) {
-          console.error('❌ Error al enviar:', error);
+          console.error(`❌ Error al enviar: ${error}`);
         }
       }
     }
@@ -479,6 +523,7 @@ class ConnectionManager {
   // ========== DESCONEXIÓN ==========
   async disconnect() {
     try {
+      this.stopHeartbeat();
       if (this.isServer && this.server) {
         this.clients.forEach(socket => socket.destroy());
         this.clients.clear();
@@ -504,6 +549,66 @@ class ConnectionManager {
     } catch (error) {
       console.error('❌ Error al desconectar:', error);
     }
+  }
+
+  // ========== HEARTBEAT ==========
+  private startHeartbeat() {
+    if (!this.isServer) return;
+    
+    // Limpiar intervalo anterior si existe
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+    }
+    
+    // Iniciar nuevo intervalo
+    this.heartbeatInterval = setInterval(() => {
+      // Enviar ping a todos
+      this.sendEvent({
+        type: 'HEARTBEAT_PING',
+        data: { timestamp: Date.now() }
+      });
+      
+      // Verificar timeouts
+      this.checkHeartbeatTimeouts();
+    }, this.HEARTBEAT_INTERVAL);
+    
+    console.log('💓 Heartbeat iniciado');
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+      console.log('💔 Heartbeat detenido');
+    }
+  }
+
+  private checkHeartbeatTimeouts() {
+    const now = Date.now();
+    const disconnectedPlayers: string[] = [];
+    
+    this.connectedPlayers.forEach(playerName => {
+      // Saltar el master (nosotros mismos)
+      if (playerName === this.myName) return;
+      
+      const lastHeartbeat = this.lastHeartbeatReceived.get(playerName) || 0;
+      const timeSinceLastHeartbeat = now - lastHeartbeat;
+      
+      if (timeSinceLastHeartbeat > this.HEARTBEAT_TIMEOUT) {
+        console.log('⚠️ Timeout detectado para:', playerName);
+        disconnectedPlayers.push(playerName);
+      }
+    });
+    
+    // Eliminar jugadores desconectados
+    disconnectedPlayers.forEach(playerName => {
+      this.handlePlayerLeft(playerName);
+      const socket = this.clients.get(playerName);
+      if (socket) {
+        socket.destroy();
+        this.clients.delete(playerName);
+      }
+    });
   }
 
   // ========== GETTERS ==========

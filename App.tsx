@@ -143,7 +143,7 @@ const App = () => {
       }
       case 'Puntuaciones': return 'Puntuaciones';
       case 'ReglasJuego': return 'Reglas del Juego';
-      case 'ConfiguracionPartida': return 'Configuración de Partida';
+      case 'ConfiguracionPartida': return 'Configuación inicial';
       case 'PartidaActual': return 'Partida Actual';
       default: return 'Scattergories';
     }

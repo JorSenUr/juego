@@ -27,6 +27,7 @@ export interface GameConfig {
   paperMode: boolean;
   randomMode: boolean;
   isMasterDevice: boolean;
+  onlineGameInProgress: boolean;
   
   // Letters settings
   availableLetters: string[];
@@ -64,6 +65,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   paperMode: false,
   randomMode: false,
   isMasterDevice: true,
+  onlineGameInProgress: false,
   
   // Letters (letras por defecto sin las difíciles K, Q, W, X, Y, Z)
   availableLetters: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'V'],
