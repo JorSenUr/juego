@@ -138,8 +138,14 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
         if (event.type === 'PLAYERS_LIST_UPDATE') {
           setConnectedPlayers(event.data.players);
         }
+        
+        // Cuando el master inicia la partida, navegar a PantallaJuego
+        if (event.type === 'GAME_START') {
+            console.log('🎮 Esclavo recibió GAME_START, navegando...');
+            navigate('PantallaJuego');
+        }
       });
-      
+        
       console.log('✅ Conectado a partida');
     } else {
       Alert.alert(
