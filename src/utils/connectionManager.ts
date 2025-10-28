@@ -1,11 +1,8 @@
 // Gestor de conexiones WiFi Hotspot + WebSocket para modo multijugador
 
 import TcpSocket from 'react-native-tcp-socket';
-import { Platform, PermissionsAndroid, NativeModules } from 'react-native';
+import { Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import Zeroconf from 'react-native-zeroconf';
-
-const { MulticastLock } = NativeModules;
 
 
 // ========== TIPOS DE EVENTOS ==========
@@ -93,8 +90,6 @@ class ConnectionManager {
   private eventCallbacks: EventCallback[] = [];
   private myName: string = '';
   private serverIp: string = '';
-  private zeroconf: Zeroconf = new Zeroconf();
-  private discoveredServices: Map<string, { name: string; host: string; port: number; addresses: string[] }> = new Map();
 
 
   // ========== OBTENER IP LOCAL ==========
@@ -176,20 +171,6 @@ class ConnectionManager {
 
       this.server.listen({ port: SERVER_PORT, host: '0.0.0.0' });
       
-      // Publicar servicio mDNS
-      this.zeroconf.publishService(
-        '_scattergories._tcp',  // type
-        'tcp',                   // protocol
-        'local.',                // domain
-        playerName,              // name
-        SERVER_PORT,             // port
-        {
-          players: '1'
-        }
-      ); 
-
-      console.log(`✅ Servidor iniciado en ${this.serverIp}:${SERVER_PORT}`);
-      console.log(`📡 Servicio mDNS publicado: Partida de ${playerName}`);
       return true;
     } catch (error) {
       console.error('❌ Error al iniciar servidor:', error);
@@ -198,97 +179,6 @@ class ConnectionManager {
   }
 
   // ========== CLIENTE (ESCLAVO) ==========
-async scanForDevices(): Promise<Array<{ name: string; address: string; playersCount: number }>> {
-  return new Promise(async (resolve) => {
-    this.discoveredServices.clear();
-    
-    // Activar multicast lock en Android
-    if (Platform.OS === 'android' && MulticastLock) {
-      try {
-        await MulticastLock.acquire();
-        console.log('✅ Multicast lock activado');
-      } catch (error) {
-        console.error('❌ Error activando multicast lock:', error);
-      }
-    }
-    
-    // Solicitar permisos si es Android
-    if (Platform.OS === 'android') {
-      try {
-        const { PermissionsAndroid } = await import('react-native');
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Permiso de ubicación',
-            message: 'Necesario para descubrir dispositivos en red local',
-            buttonPositive: 'OK'
-          }
-        );
-        
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          console.log('❌ Permiso de ubicación denegado');
-          resolve([]);
-          return;
-        }
-      } catch (error) {
-        console.error('❌ Error solicitando permisos:', error);
-        resolve([]);
-        return;
-      }
-    }
-      
-      // Listener para servicios encontrados
-      this.zeroconf.on('resolved', (service: any) => {
-        console.log('📡 Servicio encontrado:', service);
-        
-        if (service.name && service.addresses && service.addresses.length > 0) {
-          const playerName = service.txt?.name || service.name;
-          const playersCount = parseInt(service.txt?.players || '1');
-          
-          this.discoveredServices.set(service.name, {
-            name: playerName,
-            host: service.host,
-            port: service.port,
-            addresses: service.addresses
-          });
-        }
-      });
-      
-      // Listener para errores
-      this.zeroconf.on('error', (error: any) => {
-        console.error('❌ Error en escaneo mDNS:', error);
-      });
-      
-      // Iniciar escaneo
-      console.log('🔍 Escaneando servicios mDNS...');
-      this.zeroconf.scan('_scattergories._tcp', 'local');
-      
-      // Esperar 5 segundos y retornar resultados
-      setTimeout(async () => {
-        this.zeroconf.stop();
-        
-        const devices = Array.from(this.discoveredServices.values()).map(service => ({
-          name: `Partida de ${service.name}`,
-          address: service.addresses[0], // Primera IP encontrada
-          playersCount: 1 // TODO: Obtener del txt record
-        }));
-        
-        console.log('📱 Dispositivos encontrados:', devices.length);
-        // Liberar multicast lock
-        if (Platform.OS === 'android' && MulticastLock) {
-          try {
-            await MulticastLock.release();
-            console.log('✅ Multicast lock liberado');
-          } catch (error) {
-            console.error('❌ Error liberando multicast lock:', error);
-          }
-        }
-        
-        console.log('📱 Dispositivos encontrados:', devices.length);
-        resolve(devices);
-      }, 5000);
-    });
-  }
 
   async connectToDevice(serverIp: string, playerName: string): Promise<boolean> {
     try {
@@ -497,20 +387,6 @@ async scanForDevices(): Promise<Array<{ name: string; address: string; playersCo
       data: { players: this.connectedPlayers }
     });
     
-    // Actualizar servicio mDNS con número de jugadores
-    if (this.isServer) {
-      this.zeroconf.unpublishService(this.myName);
-      this.zeroconf.publishService(
-        '_scattergories._tcp',  // type
-        'tcp',                   // protocol
-        'local.',                // domain
-        this.myName,             // name
-        SERVER_PORT,             // port
-        {
-          players: String(this.connectedPlayers.length)
-        }
-      );
-    }
   }
 
   // ========== FUNCIONES PÚBLICAS ==========
@@ -574,6 +450,23 @@ async scanForDevices(): Promise<Array<{ name: string; address: string; playersCo
     return this.serverIp;
   }
 
+  getServerIdentifier(): string {
+    // Extraer el último octeto de la IP (1-3 dígitos)
+    const parts = this.serverIp.split('.');
+    return parts[3] || '0';
+  }
+
+  async buildIpFromIdentifier(identifier: string): Promise<string> {
+    // Obtener nuestra IP local
+    const myIp = await this.getLocalIpAddress();
+    const parts = myIp.split('.');
+    
+    // Reemplazar el último octeto con el identificador
+    parts[3] = identifier;
+    
+    return parts.join('.');
+  }
+  
   // ========== CALLBACKS ==========
   onEvent(callback: EventCallback) {
     this.eventCallbacks.push(callback);
@@ -587,13 +480,6 @@ async scanForDevices(): Promise<Array<{ name: string; address: string; playersCo
   async disconnect() {
     try {
       if (this.isServer && this.server) {
-      // Despublicar servicio mDNS
-      try {
-        this.zeroconf.unpublishService('scattergories');
-        console.log('📡 Servicio mDNS despublicado');
-      } catch (e) {
-        // Ignorar si no estaba publicado
-      }
         this.clients.forEach(socket => socket.destroy());
         this.clients.clear();
         this.server.close();

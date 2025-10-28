@@ -10,8 +10,6 @@ import {
   Alert,
   TouchableWithoutFeedback,
   Keyboard,
-  PermissionsAndroid,
-  Platform,
 } from 'react-native';
 import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
 import { connectionManager } from '../utils/connectionManager';
@@ -44,6 +42,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
   const [userRole, setUserRole] = useState<'none' | 'master' | 'slave'>('none');
   const [connectedPlayers, setConnectedPlayers] = useState<string[]>([]);
   const [playerName, setPlayerName] = useState<string>(config.playerNames[0] || 'Nombre');
+  const [serverIdentifier, setServerIdentifier] = useState<string>('');
   // =====================================================
   
   useEffect(() => {
@@ -110,94 +109,45 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     await updateConfig({ isMasterDevice: true });
   };
 
-
-  const handleUnirsePartida = async () => {
-    // Solicitar permiso según versión de Android
-    if (Platform.OS === 'android') {
-      try {
-        let granted;
-        
-        // Android 13+ usa NEARBY_WIFI_DEVICES
-        if (Platform.Version >= 33) {
-          granted = await PermissionsAndroid.request(
-            'android.permission.NEARBY_WIFI_DEVICES' as any,
-            {
-              title: 'Permiso para buscar dispositivos cercanos',
-              message: 'Para buscar partidas en la red WiFi local.',
-              buttonPositive: 'Permitir',
-              buttonNegative: 'Cancelar',
-            }
-          );
-        } else {
-          // Android 12 y anteriores usan ACCESS_FINE_LOCATION
-          granted = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-            {
-              title: 'Permiso de ubicación necesario',
-              message: 'Para buscar partidas cercanas en la red WiFi necesitamos acceso a la ubicación.',
-              buttonPositive: 'Permitir',
-              buttonNegative: 'Cancelar',
-            }
-          );
-        }
-
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          Alert.alert(
-            'Permiso denegado',
-            'Sin el permiso necesario no podemos buscar partidas en la red local.',
-            [{ text: 'Entendido' }]
-          );
-          return;
-        }
-      } catch (error) {
-        console.error('Error solicitando permiso:', error);
-        Alert.alert('Error', 'No se pudo solicitar el permiso necesario.');
-        return;
-      }
-    }
-    
-    // Escanear dispositivos disponibles
-    const devices = await connectionManager.scanForDevices();
-    
-    if (devices.length === 0) {
-      Alert.alert(
-        'No hay partidas',
-        'No se encontraron partidas activas.\n\nAsegúrate de que:\n• El organizador ha pulsado "Iniciar Partida"\n• Ambos dispositivos están en la misma red WiFi',
-        [{ text: 'OK' }]
-      );
+  const handleConectarManual = async (identifier: string) => {
+    if (!identifier || identifier.trim() === '') {
+      Alert.alert('Error', 'Debes introducir el identificador del organizador');
       return;
     }
+
+    // Validar que solo sean números de 1-3 dígitos
+    const idNum = identifier.trim();
+    if (!/^\d{1,3}$/.test(idNum)) {
+      Alert.alert('Error', 'El identificador debe ser un número de 1 a 3 dígitos');
+      return;
+    }
+
+    // Construir IP completa
+    const serverIp = await connectionManager.buildIpFromIdentifier(idNum);
     
-    // Si hay dispositivos, mostrar lista
-    Alert.alert(
-      `${devices.length} ${devices.length === 1 ? 'partida encontrada' : 'partidas encontradas'}`,
-      devices.map((d, i) => `${i + 1}. ${d.name} (${d.playersCount} ${d.playersCount === 1 ? 'jugador' : 'jugadores'})`).join('\n'),
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        ...devices.map((device) => ({
-          text: `Unirse a ${device.name}`,
-          onPress: async () => {
-            const connected = await connectionManager.connectToDevice(device.address, playerName);
-            
-            if (connected) {
-              setUserRole('slave');
-              await updateConfig({ isMasterDevice: false });
-              
-              // Escuchar eventos
-              connectionManager.onEvent((event) => {
-                if (event.type === 'PLAYERS_LIST_UPDATE') {
-                  setConnectedPlayers(event.data.players);
-                }
-              });
-              
-              console.log('✅ Conectado a partida');
-            } else {
-              Alert.alert('Error', 'No se pudo conectar. Reintenta.', [{ text: 'OK' }]);
-            }
-          }
-        }))
-      ]
-    );
+    console.log(`🔗 Conectando a: ${serverIp}`);
+
+    const connected = await connectionManager.connectToDevice(serverIp, playerName.trim() || 'Jugador');
+    
+    if (connected) {
+      setUserRole('slave');
+      await updateConfig({ isMasterDevice: false });
+      
+      // Escuchar eventos
+      connectionManager.onEvent((event) => {
+        if (event.type === 'PLAYERS_LIST_UPDATE') {
+          setConnectedPlayers(event.data.players);
+        }
+      });
+      
+      console.log('✅ Conectado a partida');
+    } else {
+      Alert.alert(
+        'Error de conexión', 
+        `No se pudo conectar al dispositivo ${idNum}.\n\nVerifica:\n• Que el organizador haya iniciado partida\n• Que estén en la misma red WiFi\n• Que el identificador sea correcto`,
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   const handleCancelarConexion = async () => {
@@ -578,19 +528,42 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
                 placeholderTextColor="#999"
               />
               
-              <TouchableOpacity 
-                style={styles.onlineActionButton}
-                onPress={handleIniciarPartida}
-              >
-                <Text style={styles.onlineActionButtonText}>🎮 INICIAR PARTIDA</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.onlineActionButton}
-                onPress={handleUnirsePartida}
-              >
-                <Text style={styles.onlineActionButtonText}>📱 UNIRME A PARTIDA</Text>
-              </TouchableOpacity>
+              {/* Si es PRINCIPAL - Botón para iniciar */}
+              {isMasterDevice && (
+                <TouchableOpacity 
+                  style={styles.onlineActionButton}
+                  onPress={handleIniciarPartida}
+                >
+                  <Text style={styles.onlineActionButtonText}>🎮 INICIAR PARTIDA</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Si es SECUNDARIO - Input para identificador */}
+              {!isMasterDevice && (
+                <>
+                  <Text style={styles.conectionNameLabel}>IDENTIFICADOR DEL ORGANIZADOR:</Text>
+                  <TextInput
+                    style={styles.identifierInput}
+                    value={serverIdentifier}
+                    onChangeText={setServerIdentifier}
+                    placeholder="Ej: 202"
+                    placeholderTextColor="#999"
+                    keyboardType="number-pad"
+                    maxLength={3}
+                  />
+                  
+                  <TouchableOpacity 
+                    style={[
+                      styles.onlineActionButton,
+                      (!serverIdentifier.trim()) && styles.onlineActionButtonDisabled
+                    ]}
+                    onPress={() => handleConectarManual(serverIdentifier)}
+                    disabled={!serverIdentifier.trim()}
+                  >
+                    <Text style={styles.onlineActionButtonText}>🔗 CONECTAR</Text>
+                  </TouchableOpacity>
+                </>
+              )}
               
               <Text style={styles.warningText}>
                 📡 Asegúrate de estar en la misma red WiFi que los demás jugadores
@@ -603,7 +576,12 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
             <View style={styles.waitingContainer}>
               <Text style={styles.waitingTitle}>ESPERANDO JUGADORES...</Text>
               <Text style={styles.waitingSubtitle}>Tu nombre: {playerName}</Text>
-              <Text style={styles.waitingSubtitle}>IP: {connectionManager.getServerIp()}</Text>
+              
+              {/* MOSTRAR IDENTIFICADOR */}
+              <View style={styles.identifierBox}>
+                <Text style={styles.identifierLabel}>Tu identificador:</Text>
+                <Text style={styles.identifierValue}>{connectionManager.getServerIdentifier()}</Text>
+              </View>
               
               <View style={styles.playersList}>
                 <Text style={styles.playersListTitle}>Jugadores conectados:</Text>
@@ -1035,6 +1013,47 @@ const styles = StyleSheet.create({
       textDecorationLine: 'underline',
     },
     // =========================================
+    identifierInput: {
+    borderWidth: 2,
+    borderColor: '#1E88E5',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 20,
+    fontWeight: 'bold',
+    backgroundColor: '#FFFFFF',
+    color: '#000000',
+    marginBottom: 16,
+    textAlign: 'center',
+    letterSpacing: 2,
+  },
+  onlineActionButtonDisabled: {
+    backgroundColor: '#666666',
+    borderColor: '#555555',
+    opacity: 0.6,
+  },
+  identifierBox: {
+    backgroundColor: '#1E88E5',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 16,
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#1565C0',
+  },
+  identifierLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  identifierValue: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    letterSpacing: 4,
+  },
+  
 });
 
 export default ConfiguracionPartida;
