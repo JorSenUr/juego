@@ -179,26 +179,14 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
   const handleIniciarJuego = async () => {
     const config = getCurrentConfig();
     
-    // Preparar datos del juego
-    const letter = 'A'; // TODO: Esto debería ser aleatorio basado en availableLetters
-    const listId = config.selectedListId;
-    const versionId = config.selectedVersionId;
-    const listName = "Lista 1"; // TODO: Obtener nombre real de la lista
-    
-    // Obtener duración del timer
-    const minMs = config.timerMinMinutes * 60 * 1000;
-    const maxMs = config.timerMaxMinutes * 60 * 1000;
-    const timerDuration = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
-    
-    // Enviar evento GAME_START
+    // Enviar configuración de partida
     connectionManager.startGame({
-      letter,
-      listId,
-      versionId,
-      listName,
-      timerDuration,
       paperMode: config.paperMode,
-      randomMode: config.randomMode
+      warningEnabled: config.warningEnabled,
+      warningSeconds: config.warningSeconds,
+      showTimer: config.showTimer,
+      endGameAlertEnabled: config.endGameAlertEnabled,
+      endGameAlertTitle: config.endGameAlertTitle
     });
     
     // Navegar a PantallaJuego

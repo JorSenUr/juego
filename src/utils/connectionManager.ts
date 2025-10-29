@@ -25,14 +25,19 @@ export type GameEvent =
         playerName: string;
       };
     }
-  | {
-      type: 'GAME_CONFIG_UPDATE';
+  | {                           
+      type: 'GAME_START'; 
       data: {
         paperMode: boolean;
+        warningEnabled: boolean;
+        warningSeconds: number;
+        showTimer: boolean;
+        endGameAlertEnabled: boolean;
+        endGameAlertTitle: string;
       };
     }
   | {
-      type: 'GAME_START';
+      type: 'ROUND_START';
       data: {
         letter: string;
         listId: number;
@@ -41,10 +46,12 @@ export type GameEvent =
         categories?: string[];
         timerDuration: number;
         timestamp: number;
-        paperMode: boolean;
-        randomMode: boolean;
       };
     }
+  | {
+    type: 'GAME_FINALIZE';
+    data: {};
+    }   
   | {
       type: 'TIMER_END';
       data: {};
@@ -189,7 +196,7 @@ class ConnectionManager {
       });
 
       this.server.listen({ port: SERVER_PORT, host: '0.0.0.0' });
-      this.startHeartbeat();
+      //this.startHeartbeat();
       return true;
     } catch (error) {
       console.error('❌ Error al iniciar servidor:', error);
@@ -284,7 +291,7 @@ class ConnectionManager {
           break;
       }
     }
-    
+
     // ========== EVENTOS DEL ESCLAVO ==========
     if (!this.isServer) {
       switch (event.type) {
@@ -293,6 +300,10 @@ class ConnectionManager {
           break;
           
         case 'GAME_START':
+          // Solo recibe configuración, no cambia gameState
+          break;
+          
+        case 'ROUND_START':
           this.gameState = 'playing';
           break;
           
@@ -438,31 +449,36 @@ class ConnectionManager {
     this.gameState = state;
   }
 
-  notifyConfigUpdate(paperMode: boolean) {
+  startGame(gameConfig: {
+    paperMode: boolean;
+    warningEnabled: boolean;
+    warningSeconds: number;
+    showTimer: boolean;
+    endGameAlertEnabled: boolean;
+    endGameAlertTitle: string;
+  }) {
     if (this.isServer) {
       this.sendEvent({
-        type: 'GAME_CONFIG_UPDATE',
-        data: { paperMode }
+        type: 'GAME_START',
+        data: gameConfig
       });
     }
   }
-
-  startGame(gameData: {
+    
+  startRound(roundData: {
     letter: string;
     listId: number;
     versionId: string;
     listName: string;
     categories?: string[];
     timerDuration: number;
-    paperMode: boolean;
-    randomMode: boolean;
   }) {
     if (this.isServer) {
       this.gameState = 'playing';
       this.sendEvent({
-        type: 'GAME_START',
+        type: 'ROUND_START',
         data: {
-          ...gameData,
+          ...roundData,
           timestamp: Date.now()
         }
       });
@@ -523,7 +539,7 @@ class ConnectionManager {
   // ========== DESCONEXIÓN ==========
   async disconnect() {
     try {
-      this.stopHeartbeat();
+      //this.stopHeartbeat();
       if (this.isServer && this.server) {
         this.clients.forEach(socket => socket.destroy());
         this.clients.clear();
