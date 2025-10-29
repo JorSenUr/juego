@@ -314,6 +314,10 @@ class ConnectionManager {
         case 'ALL_SCORES':
           this.gameState = 'waiting';
           break;
+
+        case 'GAME_FINALIZE':
+          // El listener global manejará la lógica
+          break;
       }
     }
   }
@@ -341,10 +345,21 @@ class ConnectionManager {
       this.connectedPlayers.splice(index, 1);
       this.broadcastPlayersList();
       
-      this.sendEvent({
-        type: 'PLAYER_LEFT',
+      const event = {
+        type: 'PLAYER_LEFT' as const,
         data: { playerName }
-      });
+      };
+      
+      console.log('🔵 ANTES de sendEvent');
+
+      // Enviar a clientes
+      this.sendEvent(event);
+
+      console.log('🟢 DESPUÉS de sendEvent');
+      
+      // Notificar a callbacks locales
+      console.log(`🔔 Notificando PLAYER_LEFT a ${this.eventCallbacks.length} callbacks locales`);
+      this.eventCallbacks.forEach(callback => callback(event));
     }
   }
 

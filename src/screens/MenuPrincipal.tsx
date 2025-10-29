@@ -10,6 +10,9 @@ import {
 } from 'react-native';
 import { updateConfig, getCurrentConfig } from '../utils/gameConfig';
 import { isGameInProgress, finalizeCurrentGame } from '../data/storage';
+import { connectionManager } from '../utils/connectionManager';
+
+
 
 interface MenuPrincipalProps {
   navigate: (screen: 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'PartidaActual') => void;
@@ -67,32 +70,82 @@ const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
     }
   };
 
-const handleTerminarPartida = () => {
-  Alert.alert(
-    'TERMINAR PARTIDA',
-    '¿Quieres terminar esta partida? Todas las rondas se guardarán en el historial permanente.',
-    [
-      { text: 'CANCELAR', style: 'cancel' },
-      { 
-        text: 'TERMINAR', 
-        onPress: async () => {
-          await finalizeCurrentGame();
-          await updateConfig({ onlineGameInProgress: false });
-          //setHasGameInProgress(false);
-          //setIsOnlineGame(false);
-          Alert.alert(
-            'Partida Terminada',
-            'La partida se ha guardado en el historial.',
-            [{ 
-              text: 'OK', 
-              onPress: () => navigate('Puntuaciones') // ← Cambiar de MenuPrincipal a Puntuaciones
-            }]
-          );
+  const handleTerminarPartida = () => {
+    const config = getCurrentConfig();
+    
+    // CASO 1: MAESTRO en partida online
+    if (isOnlineGame && isMasterDevice) {
+      Alert.alert(
+        'TERMINAR PARTIDA ONLINE',
+        '¿Quieres terminar la partida para todos los jugadores?',
+        [
+          { text: 'CANCELAR', style: 'cancel' },
+          { 
+            text: 'TERMINAR', 
+            onPress: async () => {
+              // Enviar GAME_FINALIZE a todos
+              connectionManager.sendEvent({
+                type: 'GAME_FINALIZE',
+                data: {}
+              });
+
+              await new Promise(resolve => setTimeout(resolve, 500));
+
+              await finalizeCurrentGame();
+              await connectionManager.disconnect();
+              await updateConfig({ onlineGameInProgress: false });
+              
+              Alert.alert('Partida Terminada', 'La partida se ha guardado en el historial.', [
+                { text: 'OK', onPress: () => navigate('Puntuaciones') }
+              ]);
+            }
+          }
+        ]
+      );
+      return;
+    }
+    
+    // CASO 2: ESCLAVO en partida online
+    if (isOnlineGame && !isMasterDevice) {
+      Alert.alert(
+        'ABANDONAR PARTIDA',
+        '¿Quieres abandonar la partida?\n\nTus rondas se guardarán en el historial.',
+        [
+          { text: 'CANCELAR', style: 'cancel' },
+          { 
+            text: 'ABANDONAR', 
+            style: 'destructive',
+            onPress: async () => {
+              await finalizeCurrentGame();
+              await connectionManager.disconnect();
+              await updateConfig({ onlineGameInProgress: false });
+              navigate('MenuPrincipal');
+            }
+          }
+        ]
+      );
+      return;
+    }
+    
+    // CASO 3: Partida offline normal
+    Alert.alert(
+      'TERMINAR PARTIDA',
+      '¿Quieres terminar esta partida? Todas las rondas se guardarán en el historial permanente.',
+      [
+        { text: 'CANCELAR', style: 'cancel' },
+        { 
+          text: 'TERMINAR', 
+          onPress: async () => {
+            await finalizeCurrentGame();
+            await updateConfig({ onlineGameInProgress: false });
+            Alert.alert('Partida Terminada', 'La partida se ha guardado en el historial.', [
+              { text: 'OK', onPress: () => navigate('Puntuaciones') }
+            ]);
+          }
         }
-      }
-    ]
-  );
-};
+      ]
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -135,7 +188,9 @@ const handleTerminarPartida = () => {
               styles.buttonText,
               !hasGameInProgress && styles.disabledButtonText
             ]}>
-              {isOnlineGame ? 'Abandonar Partida' : 'Terminar Partida'}
+              {isOnlineGame 
+                ? (isMasterDevice ? 'Terminar Partida' : 'Abandonar Partida') 
+                : 'Terminar Partida'}
             </Text>
           </TouchableOpacity>
 

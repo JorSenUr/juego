@@ -18,6 +18,9 @@ import { initializeConfig, getCurrentConfig } from './src/utils/gameConfig';
 import { isGameInProgress, loadCurrentGame } from './src/data/storage';
 import { AppState } from 'react-native';
 import { soundManager } from './src/utils/soundManager';
+import { connectionManager } from './src/utils/connectionManager';
+import { finalizeCurrentGame } from './src/data/storage';
+import { updateConfig } from './src/utils/gameConfig';
 
 
 
@@ -57,6 +60,85 @@ const App = () => {
 
     return () => {
       subscription.remove();
+    };
+  }, []);
+
+  // ========== LISTENER GLOBAL PARA GAME FINALIZE==========
+  useEffect(() => {
+    const handleEvents = async (event: any) => {
+      console.log(`👂 App.tsx listener recibió: ${event.type}`);
+
+      if (event.type === 'GAME_FINALIZE') {
+        const config = getCurrentConfig();
+        
+        if (config.isMasterDevice) {
+          console.log('🎮 GAME_FINALIZE ignorado (soy maestro)');
+          return;
+        }
+        
+        console.log('🎮 GAME_FINALIZE recibido, finalizando partida...');
+        
+        await finalizeCurrentGame();
+        await connectionManager.disconnect();
+        connectionManager.onEvent(handleEvents);
+        await updateConfig({ onlineGameInProgress: false });
+        
+        Alert.alert('Partida Terminada', 'El organizador ha terminado la partida. Tus puntuaciones se han guardado.', [
+          { text: 'OK', onPress: () => navigate('MenuPrincipal') }
+        ]);
+      }
+      
+      if (event.type === 'PLAYER_LEFT') {
+        const config = getCurrentConfig();
+        
+        // Solo procesar si es maestro y hay partida online
+        if (config.isMasterDevice && config.onlineGameInProgress) {
+          const remainingPlayers = connectionManager.getConnectedPlayers();
+          
+          // Si solo queda el maestro (1 jugador)
+          if (remainingPlayers.length === 1) {
+            Alert.alert(
+              'Último jugador desconectado',
+              `${event.data.playerName} ha abandonado la partida. Eres el único jugador restante.\n\n¿Quieres terminar la partida?`,
+              [
+                { text: 'SEGUIR JUGANDO', style: 'cancel' },
+                {
+                  text: 'TERMINAR PARTIDA',
+                  onPress: async () => {
+                    // Enviar GAME_FINALIZE (aunque no haya nadie)
+                    connectionManager.sendEvent({
+                      type: 'GAME_FINALIZE',
+                      data: {}
+                    });
+                    
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    await finalizeCurrentGame();
+                    await connectionManager.disconnect();
+                    await updateConfig({ onlineGameInProgress: false });
+                    
+                    Alert.alert('Partida Terminada', 'La partida se ha guardado en el historial.', [
+                      { text: 'OK', onPress: () => navigate('MenuPrincipal') }
+                    ]);
+                  }
+                }
+              ]
+            );
+          } else {
+            // Notificación simple si quedan más jugadores
+            Alert.alert('Jugador desconectado', `${event.data.playerName} ha abandonado la partida.`, [
+              { text: 'OK' }
+            ]);
+          }
+        }
+      }
+    };
+    
+    connectionManager.onEvent(handleEvents);
+    console.log('✅ Listener de App.tsx registrado');
+    
+    return () => {
+      connectionManager.removeEventListener(handleEvents);
+      console.log('❌ Listener de App.tsx eliminado');
     };
   }, []);
 

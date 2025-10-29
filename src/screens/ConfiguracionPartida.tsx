@@ -42,7 +42,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
   const [userRole, setUserRole] = useState<'none' | 'master' | 'slave'>('none');
   const [connectedPlayers, setConnectedPlayers] = useState<string[]>([]);
   const [playerName, setPlayerName] = useState<string>(config.playerNames[0] || 'Nombre');
-  const [serverIdentifier, setServerIdentifier] = useState<string>('');
+  const [serverIdentifier, setServerIdentifier] = useState<string>(config.lastServerIdentifier || '');
   // =====================================================
   
   useEffect(() => {
@@ -77,9 +77,12 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
 
     if (serverEventListenerRef.current) {
       connectionManager.removeEventListener(serverEventListenerRef.current);
+      serverEventListenerRef.current = null; 
     }
 
     const listener = (event: any) => {
+      console.log(`🎧 Listener maestro recibió: ${event.type}`);
+
       if (event.type === 'PLAYERS_LIST_UPDATE') {
         setConnectedPlayers(event.data.players);
         return;
@@ -97,7 +100,12 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
       if (event.type === 'PLAYER_LEFT') {
         setConnectedPlayers(prev => prev.filter(name => name !== event.data.playerName));
       }
-    };
+      Alert.alert(
+        'Jugador desconectado',
+        `${event.data.playerName} ha abandonado la partida.`,
+        [{ text: 'OK' }]
+      );
+    }
 
     connectionManager.onEvent(listener);
     serverEventListenerRef.current = listener;
@@ -133,6 +141,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     const connected = await connectionManager.connectToDevice(serverIp, playerName.trim() || 'Jugador');
     
     if (connected) {
+      await updateConfig({ lastServerIdentifier: idNum });
       setUserRole('slave');
       await updateConfig({
         isMasterDevice: false,
@@ -173,7 +182,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     
     setUserRole('none');
     setConnectedPlayers([]);
-    await updateConfig({ isMasterDevice: true }); // Resetear a maestro por defecto
+    await updateConfig({ onlineGameInProgress: false }); // ← NO cambiar isMasterDevice
   };
 
   const handleIniciarJuego = async () => {
