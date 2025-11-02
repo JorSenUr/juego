@@ -54,19 +54,15 @@ const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
   };
 
   const handleComenzarPartida = async () => {
-    console.log('🔵 handleComenzarPartida ejecutado');
     await updateConfig({ freeMode: false });
     
-    if (isOnlineGame) {
-      console.log('🔵 Navegando a PantallaJuego (online)');
+    if (hasGameInProgress) {
       navigate('PantallaJuego');
-      return;
+    } else {
+      navigate('SeleccionModoPartida'); // ← Era ConfiguracionPartida
     }
-    
-    console.log('🔵 Navegando a SeleccionModoPartida');
-    navigate('SeleccionModoPartida');
   };
-
+  
   const handleTerminarPartida = () => {
     const config = getCurrentConfig();
     

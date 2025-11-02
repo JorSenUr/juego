@@ -26,7 +26,8 @@ import ConfiguracionOnline from './src/screens/ConfiguracionOnline';
 
 
 
-type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionModoPartida' | 'ConfiguracionOnline' | 'PartidaActual';type GameMode = 'waiting' | 'playing' | 'scoring' | 'offlineScoring' | 'reviewing';
+type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionModoPartida' | 'ConfiguracionOnline' | 'PartidaActual';
+type GameMode = 'waiting' | 'playing' | 'scoring' | 'offlineScoring' | 'reviewing';
 
 const App = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>('MenuPrincipal');
@@ -39,6 +40,12 @@ const App = () => {
   useEffect(() => {
     const init = async () => {
       await initializeConfig();
+      // Resetear conexiones al abrir la app
+      await connectionManager.disconnect();
+        await updateConfig({ 
+        onlineGameInProgress: false,
+        
+      });
     };
     init();
   }, []);
@@ -154,9 +161,9 @@ const App = () => {
       setConfigReturnScreen(options.from);
     }
     
-    // Si van a PantallaJuego desde ConfiguracionPartida, recordarlo
-    if (screen === 'PantallaJuego' && currentScreen === 'ConfiguracionPartida') {
-      setGameReturnScreen('ConfiguracionPartida');
+    // Si van a PantallaJuego desde ConfiguracionPartida o ConfiguracionOnline, recordarlo
+    if (screen === 'PantallaJuego' && (currentScreen === 'ConfiguracionPartida' || currentScreen === 'ConfiguracionOnline')) {
+      setGameReturnScreen(currentScreen);
     }
     
     setCurrentScreen(screen);
@@ -198,9 +205,8 @@ const App = () => {
         return;
       }
       
-      // Si es 'waiting', ir a la pantalla de origen
-      setCurrentScreen(gameReturnScreen);
-      setGameReturnScreen('MenuPrincipal'); // Resetear para próximas veces
+      // Si es 'waiting', ir directamente a MenuPrincipal sin warning
+      setCurrentScreen('MenuPrincipal');
       return;
     }
 
@@ -211,11 +217,9 @@ const App = () => {
       return;
     }
 
-    if (currentScreen === 'Configuracion') {
-      // Volver a la pantalla desde donde vino
-      setCurrentScreen(configReturnScreen);
-      // Resetear a MenuPrincipal para próximas veces
-      setConfigReturnScreen('MenuPrincipal');
+    // ConfiguracionPartida y ConfiguracionOnline: volver a SeleccionModoPartida
+    if (currentScreen === 'ConfiguracionPartida' || currentScreen === 'ConfiguracionOnline') {
+      setCurrentScreen('SeleccionModoPartida');
       return;
     }
 

@@ -171,9 +171,21 @@ class ConnectionManager {
           const event: GameEvent = JSON.parse(message);
           console.log(`📩 Mensaje recibido: ${event.type}`);
           
+          // Si es PLAYER_JOINED, guardar el socket con el nombre del jugador
           if (event.type === 'PLAYER_JOINED') {
             const playerName = event.data.playerName;
+            
+            // ⚠️ Limpiar socket viejo ANTES de guardar el nuevo
+            const existingSocket = this.clients.get(playerName);
+            if (existingSocket && existingSocket !== socket) {
+              console.log(`🔄 Cerrando socket antiguo de ${playerName}`);
+              existingSocket.destroy();
+            }
+            
+            // Guardar el NUEVO socket
             this.clients.set(playerName, socket);
+            
+            // Ahora sí, manejar la lógica (el socket ya está guardado)
             this.handlePlayerJoined(playerName);
           }
           
@@ -331,15 +343,15 @@ class ConnectionManager {
   }
 
   private handlePlayerJoined(playerName: string) {
-    // Si NO hay partida iniciada (no se ha enviado GAME_START)
-    if (this.currentGameConfig === null) {
-      if (!this.connectedPlayers.includes(playerName)) {
-        this.connectedPlayers.push(playerName);
-        this.lastHeartbeatReceived.set(playerName, Date.now());
-        this.broadcastPlayersList();
-        console.log('✅ Jugador añadido:', playerName);
-      }
-    } else {
+      // Si NO hay partida iniciada (no se ha enviado GAME_START)
+      if (this.currentGameConfig === null) {
+        if (!this.connectedPlayers.includes(playerName)) {
+          this.connectedPlayers.push(playerName);
+          this.lastHeartbeatReceived.set(playerName, Date.now());
+          this.broadcastPlayersList();
+          console.log('✅ Jugador añadido:', playerName);
+        }
+      } else {
       // Ya hay partida iniciada (se envió GAME_START) → reconexión
       if (!this.pendingReconnections.includes(playerName)) {
         this.pendingReconnections.push(playerName);
@@ -356,9 +368,21 @@ class ConnectionManager {
   }
 
   private handlePlayerLeft(playerName: string) {
+    // Eliminar de connectedPlayers
     const index = this.connectedPlayers.indexOf(playerName);
     if (index > -1) {
       this.connectedPlayers.splice(index, 1);
+    }
+    
+    // Eliminar de pendingReconnections también
+    const pendingIndex = this.pendingReconnections.indexOf(playerName);
+    if (pendingIndex > -1) {
+      this.pendingReconnections.splice(pendingIndex, 1);
+      console.log(`🧹 ${playerName} eliminado de reconexiones pendientes`);
+    }
+    
+    // Solo notificar si estaba en alguna de las dos listas
+    if (index > -1 || pendingIndex > -1) {
       this.broadcastPlayersList();
       
       const event = {
@@ -367,14 +391,9 @@ class ConnectionManager {
       };
       
       console.log('🔵 ANTES de sendEvent');
-
-      // Enviar a clientes
       this.sendEvent(event);
-
       console.log('🟢 DESPUÉS de sendEvent');
       
-      // Notificar a callbacks locales
-      console.log(`🔔 Notificando PLAYER_LEFT a ${this.eventCallbacks.length} callbacks locales`);
       this.eventCallbacks.forEach(callback => callback(event));
     }
   }
@@ -465,6 +484,10 @@ class ConnectionManager {
       const message = JSON.stringify(event) + '\n';
       socket.write(message);
       console.log(`📤 Evento (in sendEventToPlayer) enviado a ${playerName}: ${event.type}`);
+    } else {
+      console.error(`❌ sendEventToPlayer: No hay socket para ${playerName}`);
+      console.log(`🔍 currentGameConfig:`, this.currentGameConfig);
+      console.log(`📋 Sockets disponibles:`, Array.from(this.clients.keys()));
     }
   }
 
