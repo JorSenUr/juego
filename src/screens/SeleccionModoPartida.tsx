@@ -8,12 +8,15 @@ import {
 } from 'react-native';
 import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
 
+type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionModoPartida' | 'ConfiguracionOnline' | 'PartidaActual';
+
 interface SeleccionModoPartidaProps {
-  navigate: (screen: 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'ConfiguracionOnline' | 'SeleccionModoPartida' | 'PartidaActual') => void;
+  navigate: (screen: Screen) => void;
   goBack: () => void;
 }
 
 const SeleccionModoPartida = ({ navigate, goBack }: SeleccionModoPartidaProps) => {
+  
   const config = getCurrentConfig();
   const [isMasterDevice, setIsMasterDevice] = useState<boolean>(config.isMasterDevice);
 
@@ -46,7 +49,7 @@ const SeleccionModoPartida = ({ navigate, goBack }: SeleccionModoPartidaProps) =
           ]}
           onPress={toggleDeviceRole}
         >
-          <Text style={styles.deviceRoleIcon}>📱</Text>
+          <Text style={styles.deviceRoleIcon}>{isMasterDevice ? '🎩' : '🐇'}</Text>
           <Text style={[
             styles.deviceRoleText,
             isMasterDevice && styles.deviceRoleTextActive
@@ -66,7 +69,7 @@ const SeleccionModoPartida = ({ navigate, goBack }: SeleccionModoPartidaProps) =
           style={styles.modeButton}
           onPress={handleSinConexion}
         >
-          <Text style={styles.modeButtonIcon}>📱</Text>
+          <Text style={styles.modeButtonIcon}>📱📱</Text>
           <Text style={styles.modeButtonText}>SIN CONEXIÓN</Text>
         </TouchableOpacity>
 
@@ -74,7 +77,7 @@ const SeleccionModoPartida = ({ navigate, goBack }: SeleccionModoPartidaProps) =
           style={[styles.modeButton, styles.onlineButton]}
           onPress={handlePartidaOnline}
         >
-          <Text style={styles.modeButtonIcon}>📡</Text>
+          <Text style={styles.modeButtonIcon}>🛜</Text>
           <Text style={styles.modeButtonText}>PARTIDA ONLINE</Text>
         </TouchableOpacity>
       </View>

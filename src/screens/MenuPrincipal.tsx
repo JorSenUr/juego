@@ -15,7 +15,7 @@ import { connectionManager } from '../utils/connectionManager';
 
 
 interface MenuPrincipalProps {
-  navigate: (screen: 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'PartidaActual') => void;
+  navigate: (screen: 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionModoPartida' | 'ConfiguracionOnline' | 'PartidaActual') => void;
   goBack: () => void;
 }
 
@@ -54,20 +54,17 @@ const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
   };
 
   const handleComenzarPartida = async () => {
+    console.log('🔵 handleComenzarPartida ejecutado');
     await updateConfig({ freeMode: false });
     
-    // Si hay partida online, ir directo a PantallaJuego
     if (isOnlineGame) {
+      console.log('🔵 Navegando a PantallaJuego (online)');
       navigate('PantallaJuego');
       return;
     }
     
-    // Si no, comportamiento normal
-    if (hasGameInProgress) {
-      navigate('PantallaJuego');
-    } else {
-      navigate('ConfiguracionPartida');
-    }
+    console.log('🔵 Navegando a SeleccionModoPartida');
+    navigate('SeleccionModoPartida');
   };
 
   const handleTerminarPartida = () => {

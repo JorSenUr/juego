@@ -21,11 +21,12 @@ import { soundManager } from './src/utils/soundManager';
 import { connectionManager } from './src/utils/connectionManager';
 import { finalizeCurrentGame } from './src/data/storage';
 import { updateConfig } from './src/utils/gameConfig';
+import SeleccionModoPartida from './src/screens/SeleccionModoPartida';
+import ConfiguracionOnline from './src/screens/ConfiguracionOnline';
 
 
 
-type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'PartidaActual';
-type GameMode = 'waiting' | 'playing' | 'scoring' | 'offlineScoring' | 'reviewing';
+type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionModoPartida' | 'ConfiguracionOnline' | 'PartidaActual';type GameMode = 'waiting' | 'playing' | 'scoring' | 'offlineScoring' | 'reviewing';
 
 const App = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>('MenuPrincipal');
@@ -33,6 +34,7 @@ const App = () => {
   const [screenTitle, setScreenTitle] = useState<string>('Scattergories');
   // Recordar desde dónde se fue a Configuración para volver correctamente
   const [configReturnScreen, setConfigReturnScreen] = useState<Screen>('MenuPrincipal');
+  const [gameReturnScreen, setGameReturnScreen] = useState<Screen>('MenuPrincipal');
 
   useEffect(() => {
     const init = async () => {
@@ -151,6 +153,12 @@ const App = () => {
     if (screen === 'Configuracion' && options?.from) {
       setConfigReturnScreen(options.from);
     }
+    
+    // Si van a PantallaJuego desde ConfiguracionPartida, recordarlo
+    if (screen === 'PantallaJuego' && currentScreen === 'ConfiguracionPartida') {
+      setGameReturnScreen('ConfiguracionPartida');
+    }
+    
     setCurrentScreen(screen);
   };
 
@@ -190,8 +198,9 @@ const App = () => {
         return;
       }
       
-      // Si es 'waiting', ir directamente a MenuPrincipal sin warning
-      setCurrentScreen('MenuPrincipal');
+      // Si es 'waiting', ir a la pantalla de origen
+      setCurrentScreen(gameReturnScreen);
+      setGameReturnScreen('MenuPrincipal'); // Resetear para próximas veces
       return;
     }
 
@@ -229,7 +238,9 @@ const App = () => {
       }
       case 'Puntuaciones': return 'Puntuaciones';
       case 'ReglasJuego': return 'Reglas del Juego';
-      case 'ConfiguracionPartida': return 'Configuación inicial';
+      case 'ConfiguracionPartida': return 'Configuración inicial';
+      case 'SeleccionModoPartida': return 'Nueva Partida';           // ← AÑADIR
+      case 'ConfiguracionOnline': return 'Partida Online';           // ← AÑADIR
       case 'PartidaActual': return 'Partida Actual';
       default: return 'Scattergories';
     }
@@ -250,34 +261,38 @@ const App = () => {
     return true;
   };
 
-const renderScreen = () => {
-  const navigationProps = { navigate, goBack };
-  
-  return (
-    <>
-      {currentScreen === 'MenuPrincipal' && <MenuPrincipal {...navigationProps} />}
-      
-      {currentScreen === 'Configuracion' && <Configuracion {...navigationProps} />}
-      
-      {/* ConfiguracionPartida se mantiene montada si volvemos de Configuracion */}
-      {(currentScreen === 'ConfiguracionPartida' || configReturnScreen === 'ConfiguracionPartida') && (
-        <View style={{ display: currentScreen === 'ConfiguracionPartida' ? 'flex' : 'none', flex: 1 }}>
-          <ConfiguracionPartida {...navigationProps} />
-        </View>
-      )}
-      
-      {currentScreen === 'PantallaJuego' && (
-        <PantallaJuego {...navigationProps} onGameModeChange={setGameMode} gameMode={gameMode} />
-      )}
-      
-      {currentScreen === 'Puntuaciones' && <Puntuaciones {...navigationProps} />}
-      
-      {currentScreen === 'ReglasJuego' && <ReglasJuego {...navigationProps} />}
-      
-      {currentScreen === 'PartidaActual' && <PartidaActual {...navigationProps} />}
-    </>
-  );
-};
+  const renderScreen = () => {
+    const navigationProps = { navigate, goBack };
+    
+    return (
+      <>
+        {currentScreen === 'MenuPrincipal' && <MenuPrincipal {...navigationProps} />}
+        
+        {currentScreen === 'Configuracion' && <Configuracion {...navigationProps} />}
+        
+        {/* ConfiguracionPartida se mantiene montada si volvemos de Configuracion */}
+        {(currentScreen === 'ConfiguracionPartida' || configReturnScreen === 'ConfiguracionPartida') && (
+          <View style={{ display: currentScreen === 'ConfiguracionPartida' ? 'flex' : 'none', flex: 1 }}>
+            <ConfiguracionPartida {...navigationProps} />
+          </View>
+        )}
+        
+        {currentScreen === 'SeleccionModoPartida' && <SeleccionModoPartida {...navigationProps} />} 
+        
+        {currentScreen === 'ConfiguracionOnline' && <ConfiguracionOnline {...navigationProps} />} 
+        
+        {currentScreen === 'PantallaJuego' && (
+          <PantallaJuego {...navigationProps} onGameModeChange={setGameMode} gameMode={gameMode} />
+        )}
+        
+        {currentScreen === 'Puntuaciones' && <Puntuaciones {...navigationProps} />}
+        
+        {currentScreen === 'ReglasJuego' && <ReglasJuego {...navigationProps} />}
+        
+        {currentScreen === 'PartidaActual' && <PartidaActual {...navigationProps} />}
+      </>
+    );
+  };
 
   return (
     <View style={styles.container}>

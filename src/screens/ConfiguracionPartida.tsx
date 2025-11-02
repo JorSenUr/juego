@@ -12,12 +12,14 @@ import {
   Keyboard,
 } from 'react-native';
 import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
-import { connectionManager } from '../utils/connectionManager';
+//import { connectionManager } from '../utils/connectionManager';
 
 
+
+type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionModoPartida' | 'ConfiguracionOnline' | 'PartidaActual';
 
 interface ConfiguracionPartidaProps {
-  navigate: (screen: 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida', options?: { from?: 'ConfiguracionPartida' }) => void;
+  navigate: (screen: Screen, options?: { from?: Screen }) => void;
   goBack: () => void;
   screenHistory?: string[];
 }
@@ -30,22 +32,22 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
   const [favoritePlayers, setFavoritePlayers] = useState<string[]>(config.favoritePlayers || []);
   const [showDropdownIndex, setShowDropdownIndex] = useState<number | null>(null);
   const [clickCount, setClickCount] = useState<{ [key: number]: number }>({});
-  const [isMasterDevice, setIsMasterDevice] = useState<boolean>(config.isMasterDevice);
+  //const [isMasterDevice, setIsMasterDevice] = useState<boolean>(config.isMasterDevice);
 
   // Referencias para inputs de nombres de jugadores
   const inputRefs = useRef<{ [key: number]: TextInput | null }>({});
-  const serverEventListenerRef = useRef<((event: any) => void) | null>(null);
+  //const serverEventListenerRef = useRef<((event: any) => void) | null>(null);
 
 
   // ========== NUEVOS ESTADOS PARA MODO ONLINE ==========
-  const [onlineMode, setOnlineMode] = useState<boolean>(false);
+  /*const [onlineMode, setOnlineMode] = useState<boolean>(false);
   const [userRole, setUserRole] = useState<'none' | 'master' | 'slave'>('none');
   const [connectedPlayers, setConnectedPlayers] = useState<string[]>([]);
   const [playerName, setPlayerName] = useState<string>(config.playerNames[0] || 'Nombre');
   const [serverIdentifier, setServerIdentifier] = useState<string>(config.lastServerIdentifier || '');
-  // =====================================================
+  // =====================================================*/
   
-  useEffect(() => {
+  /*useEffect(() => {
     return () => {
       // Limpiar listener al desmontar
       if (serverEventListenerRef.current) {
@@ -198,7 +200,7 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
   };
 
   // ==========================================
-
+  */
 
 
   const togglePaperMode = async () => {
@@ -366,11 +368,12 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     navigate('PantallaJuego');
   };
 
-  const toggleDeviceRole = async () => {
+  /*const toggleDeviceRole = async () => {
     const newValue = !isMasterDevice;
     setIsMasterDevice(newValue);
     await updateConfig({ isMasterDevice: newValue });
   };
+  */
 
   return (
     <SafeAreaView style={styles.container}>
@@ -382,26 +385,6 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
           <View>
 
           {/* ========== CONTENIDO MODO OFFLINE ========== */}
-          {!onlineMode && (
-            <>
-              {/* 1. DISPOSITIVO PRINCIPAL/SECUNDARIO */}
-              {numberOfPlayers > 1 && (
-                <TouchableOpacity 
-                  style={[
-                    styles.deviceRoleButton,
-                    isMasterDevice && styles.deviceRoleButtonActive
-                  ]}
-                  onPress={toggleDeviceRole}
-                >
-                  <Text style={styles.deviceRoleIcon}>📱</Text>
-                  <Text style={[
-                    styles.deviceRoleText,
-                    isMasterDevice && styles.deviceRoleTextActive
-                  ]}>
-                    {isMasterDevice ? 'DISPOSITIVO PRINCIPAL ✓' : 'DISPOSITIVO SECUNDARIO'}
-                  </Text>
-                </TouchableOpacity>
-              )}
 
               {/* 2. JUGADORES */}
               <View style={styles.section}>
@@ -500,168 +483,10 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
                   MODO PAPEL Y BOLI  {paperMode && '✓'}
                 </Text>
               </TouchableOpacity>
-            </>
-          )}
-
-          {/* 4. CONECTAR DISPOSITIVOS */}
-          <TouchableOpacity 
-            style={[
-              styles.onlineModeButton,
-              onlineMode && styles.onlineModeButtonActive
-            ]}
-            onPress={toggleOnlineMode}
-            disabled={userRole !== 'none'}
-          >
-            <Text style={styles.onlineModeIcon}>📡</Text>
-            <Text style={[
-              styles.onlineModeText,
-              onlineMode && styles.onlineModeTextActive
-            ]}>
-              CONECTAR DISPOSITIVOS {onlineMode && '✓'}
-            </Text>
-          </TouchableOpacity>
-
-          {/* ========== CONTENIDO MODO ONLINE ========== */}
-          {onlineMode && userRole === 'none' && (
-            <View style={styles.onlineContentContainer}>
-              <Text style={styles.conectionNameLabel}>TU NOMBRE PARA CONEXIÓN:</Text>
-              <TextInput
-                style={styles.conectionNameInput}
-                value={playerName}
-                onChangeText={setPlayerName}
-                placeholder="Nombre"
-                placeholderTextColor="#999"
-              />
-              
-              {/* Si es PRINCIPAL - Botón para iniciar */}
-              {isMasterDevice && (
-                <TouchableOpacity 
-                  style={styles.onlineActionButton}
-                  onPress={handleIniciarPartida}
-                >
-                  <Text style={styles.onlineActionButtonText}>🎮 INICIAR PARTIDA</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Si es SECUNDARIO - Input para identificador */}
-              {!isMasterDevice && (
-                <>
-                  <Text style={styles.conectionNameLabel}>IDENTIFICADOR DEL ORGANIZADOR:</Text>
-                  <TextInput
-                    style={styles.identifierInput}
-                    value={serverIdentifier}
-                    onChangeText={setServerIdentifier}
-                    placeholder="Ej: 202"
-                    placeholderTextColor="#999"
-                    keyboardType="number-pad"
-                    maxLength={3}
-                  />
-                  
-                  <TouchableOpacity 
-                    style={[
-                      styles.onlineActionButton,
-                      (!serverIdentifier.trim()) && styles.onlineActionButtonDisabled
-                    ]}
-                    onPress={() => handleUnirseAPartida(serverIdentifier)}
-                    disabled={!serverIdentifier.trim()}
-                  >
-                    <Text style={styles.onlineActionButtonText}>🔗 CONECTAR</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-              
-              <Text style={styles.warningText}>
-                📡 Asegúrate de estar en la misma red WiFi que los demás jugadores
-              </Text>
-            </View>
-          )}
-
-          {/* ========== MAESTRO ESPERANDO JUGADORES ========== */}
-          {onlineMode && userRole === 'master' && (
-            <View style={styles.waitingContainer}>
-              <Text style={styles.waitingTitle}>ESPERANDO JUGADORES...</Text>
-              <Text style={styles.waitingSubtitle}>Tu nombre: {playerName}</Text>
-              
-              {/* MOSTRAR IDENTIFICADOR */}
-              <View style={styles.identifierBox}>
-                <Text style={styles.identifierLabel}>Tu identificador:</Text>
-                <Text style={styles.identifierValue}>{connectionManager.getServerIdentifier()}</Text>
-              </View>
-              
-              <View style={styles.playersList}>
-                <Text style={styles.playersListTitle}>Jugadores conectados:</Text>
-                {connectedPlayers.map((player, index) => (
-                  <Text key={index} style={styles.playerItem}>
-                    {index === 0 ? '✓ Tú (organizador)' : `✓ ${player}`}
-                  </Text>
-                ))}
-                {connectedPlayers.length === 1 && (
-                  <Text style={styles.playerItem}>⏳ Esperando...</Text>
-                )}
-              </View>
-
-              <TouchableOpacity 
-                style={styles.configButtonDiscrete}
-                onPress={() => navigate('Configuracion', { from: 'ConfiguracionPartida' })}
-              >
-                <Text style={styles.configButtonDiscreteText}>⚙️ Ajustar configuración</Text>
+              {/* 5. CONTINUAR */}
+              <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
+                <Text style={styles.continueButtonText}>CONTINUAR</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[
-                  styles.startGameButton,
-                  connectedPlayers.length < 2 && styles.startGameButtonDisabled
-                ]}
-                onPress={handleIniciarJuego}
-                disabled={connectedPlayers.length < 2}
-              >
-                <Text style={styles.onlineActionButtonText}>🚀 COMENZAR PARTIDA</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.cancelButton}
-                onPress={handleAbandonarPartida}
-              >
-                <Text style={styles.onlineActionButtonText}>❌ CANCELAR</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ========== ESCLAVO CONECTADO ========== */}
-          {onlineMode && userRole === 'slave' && (
-            <View style={styles.waitingContainer}>
-              <Text style={styles.waitingTitle}>CONECTADO A PARTIDA</Text>
-              <Text style={styles.waitingSubtitle}>Organizador: {connectedPlayers[0]}</Text>
-              
-              <View style={styles.playersList}>
-                <Text style={styles.playersListTitle}>Jugadores conectados:</Text>
-                {connectedPlayers.map((player, index) => (
-                  <Text key={index} style={styles.playerItem}>
-                    ✓ {player}
-                  </Text>
-                ))}
-              </View>
-              
-              <Text style={styles.warningText}>
-                Esperando que el organizador inicie la partida...
-              </Text>
-              
-              <TouchableOpacity 
-                style={styles.cancelButton}
-                onPress={handleAbandonarPartida}
-              >
-                <Text style={styles.onlineActionButtonText}>🔌 DESCONECTAR</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* 5. CONTINUAR - solo visible en modo offline */}
-          {!onlineMode && (
-            <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-              <Text style={styles.continueButtonText}>CONTINUAR</Text>
-            </TouchableOpacity>
-          )}
-
           </View>
         </TouchableWithoutFeedback>
       </ScrollView>
