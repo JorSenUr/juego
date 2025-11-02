@@ -114,6 +114,14 @@ class ConnectionManager {
   private lastHeartbeatReceived: Map<string, number> = new Map();
   private readonly HEARTBEAT_INTERVAL = 10000; // 10 segundos
   private readonly HEARTBEAT_TIMEOUT = 30000; // 30 segundos
+  private currentGameConfig: {
+    paperMode: boolean;
+    warningEnabled: boolean;
+    warningSeconds: number;
+    showTimer: boolean;
+    endGameAlertEnabled: boolean;
+    endGameAlertTitle: string;
+  } | null = null;
 
   // ========== OBTENER IP LOCAL ==========
   private async getLocalIpAddress(): Promise<string> {
@@ -323,18 +331,26 @@ class ConnectionManager {
   }
 
   private handlePlayerJoined(playerName: string) {
-    if (this.gameState === 'waiting') {
+    // Si NO hay partida iniciada (no se ha enviado GAME_START)
+    if (this.currentGameConfig === null) {
       if (!this.connectedPlayers.includes(playerName)) {
         this.connectedPlayers.push(playerName);
-        // NUEVO: Inicializar heartbeat inmediatamente
         this.lastHeartbeatReceived.set(playerName, Date.now());
         this.broadcastPlayersList();
         console.log('✅ Jugador añadido:', playerName);
       }
     } else {
+      // Ya hay partida iniciada (se envió GAME_START) → reconexión
       if (!this.pendingReconnections.includes(playerName)) {
         this.pendingReconnections.push(playerName);
         console.log('⏳ Reconexión pendiente:', playerName);
+        
+        // Reenviar GAME_START solo a este jugador
+        this.sendEventToPlayer(playerName, {
+          type: 'GAME_START',
+          data: this.currentGameConfig
+        });
+        console.log(`📤 GAME_START reenviado a ${playerName}`);
       }
     }
   }
@@ -446,8 +462,9 @@ class ConnectionManager {
   private sendEventToPlayer(playerName: string, event: GameEvent) {
     const socket = this.clients.get(playerName);
     if (socket) {
-      const message = JSON.stringify(event);
+      const message = JSON.stringify(event) + '\n';
       socket.write(message);
+      console.log(`📤 Evento (in sendEventToPlayer) enviado a ${playerName}: ${event.type}`);
     }
   }
 
@@ -473,6 +490,7 @@ class ConnectionManager {
     endGameAlertTitle: string;
   }) {
     if (this.isServer) {
+      this.currentGameConfig = gameConfig;
       this.sendEvent({
         type: 'GAME_START',
         data: gameConfig
@@ -554,27 +572,53 @@ class ConnectionManager {
   // ========== DESCONEXIÓN ==========
   async disconnect() {
     try {
-      //this.stopHeartbeat();
+      // Detener heartbeat si existe
+      //rthis.stopHeartbeat();
+      
+      // SERVIDOR: cerrar servidor y todos los sockets cliente
       if (this.isServer && this.server) {
-        this.clients.forEach(socket => socket.destroy());
+        // Cerrar todos los sockets de clientes
+        this.clients.forEach((socket, playerName) => {
+          try {
+            socket.destroy();
+            console.log(`🔌 Socket cerrado para: ${playerName}`);
+          } catch (error) {
+            console.error(`Error cerrando socket de ${playerName}:`, error);
+          }
+        });
         this.clients.clear();
-        this.server.close();
+        
+        // Cerrar servidor
+        this.server.close(() => {
+          console.log('🛑 Servidor cerrado completamente');
+        });
         this.server = null;
-        console.log('🛑 Servidor cerrado');
       }
       
+      // CLIENTE: cerrar socket cliente
       if (!this.isServer && this.clientSocket) {
-        this.clientSocket.destroy();
-        this.clientSocket = null;
-        console.log('🔌 Desconectado del servidor');
+        try {
+          this.clientSocket.destroy();
+          this.clientSocket = null;
+          console.log('🔌 Socket cliente cerrado');
+        } catch (error) {
+          console.error('Error cerrando socket cliente:', error);
+        }
       }
 
+      // Limpiar estado
       this.connectedPlayers = [];
       this.isServer = false;
       this.gameState = 'waiting';
       this.pendingReconnections = [];
       this.submittedScores.clear();
-      this.eventCallbacks = [];
+      this.lastHeartbeatReceived.clear();
+      this.serverIp = '';
+      this.myName = '';
+      this.currentGameConfig = null;
+      
+      // ⚠️ NO borrar eventCallbacks aquí - deben persistir entre partidas
+      // Los componentes individuales gestionan su limpieza en sus useEffect cleanup
       
       console.log('✅ Desconexión completa');
     } catch (error) {

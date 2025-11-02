@@ -100,11 +100,6 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
       if (event.type === 'PLAYER_LEFT') {
         setConnectedPlayers(prev => prev.filter(name => name !== event.data.playerName));
       }
-      Alert.alert(
-        'Jugador desconectado',
-        `${event.data.playerName} ha abandonado la partida.`,
-        [{ text: 'OK' }]
-      );
     }
 
     connectionManager.onEvent(listener);

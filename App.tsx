@@ -91,9 +91,13 @@ const App = () => {
       if (event.type === 'PLAYER_LEFT') {
         const config = getCurrentConfig();
         
+        console.log(`🔍 PLAYER_LEFT - isMaster: ${config.isMasterDevice}, onlineGame: ${config.onlineGameInProgress}, playerName: ${event.data.playerName}`);
+
         // Solo procesar si es maestro y hay partida online
         if (config.isMasterDevice && config.onlineGameInProgress) {
           const remainingPlayers = connectionManager.getConnectedPlayers();
+
+          console.log(`👥 Jugadores restantes: ${remainingPlayers.length} - ${remainingPlayers.join(', ')}`);
           
           // Si solo queda el maestro (1 jugador)
           if (remainingPlayers.length === 1) {
