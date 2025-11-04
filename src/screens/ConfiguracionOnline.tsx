@@ -108,13 +108,25 @@ const ConfiguracionOnline = ({ navigate, goBack }: ConfiguracionOnlineProps) => 
         lastServerIdentifier: idNum,
       });
       
-      connectionManager.onEvent((event) => {
+      connectionManager.onEvent(async (event) => {
         if (event.type === 'PLAYERS_LIST_UPDATE') {
           setConnectedPlayers(event.data.players);
         }
         
         if (event.type === 'GAME_START') {
-          console.log('🎮 Esclavo recibió GAME_START, navegando...');
+          console.log('🎮 Esclavo recibió GAME_START, sincronizando config...');
+          
+          await updateConfig({ 
+            onlineGameInProgress: true,
+            paperMode: event.data.paperMode,
+            warningEnabled: event.data.warningEnabled,
+            warningSeconds: event.data.warningSeconds,
+            showTimer: event.data.showTimer,
+            endGameAlertEnabled: event.data.endGameAlertEnabled,
+            endGameAlertTitle: event.data.endGameAlertTitle
+          });
+          
+          console.log('✅ Config sincronizado, navegando a PantallaJuego');
           navigate('PantallaJuego');
         }
       });

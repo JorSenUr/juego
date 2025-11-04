@@ -15,6 +15,7 @@ import { getCurrentConfig } from '../utils/gameConfig';
 import { saveGameResult, saveCurrentGameRound, finalizeCurrentGame } from '../data/storage';
 import { soundManager } from '../utils/soundManager';
 import { updateConfig } from '../utils/gameConfig';
+import { connectionManager } from '../utils/connectionManager';
 
 
 
@@ -111,6 +112,92 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     }
   }, [gameModeFromApp]);
 
+  // ========== LISTENER PARA MODO ONLINE ==========
+  useEffect(() => {
+    const config = getCurrentConfig();
+    
+    // Solo si está en partida online
+    if (!config.onlineGameInProgress) return;
+    
+    const handleOnlineEvents = (event: any) => {
+      console.log('🎮 PantallaJuego recibió evento:', event.type);
+      
+      if (event.type === 'ROUND_START') {
+        handleRoundStartReceived(event);
+      }
+    };
+    
+    connectionManager.onEvent(handleOnlineEvents);
+    
+    return () => {
+      connectionManager.removeEventListener(handleOnlineEvents);
+    };
+  }, []); // Solo montar/desmontar
+
+  // ========== HANDLER ROUND_START ==========
+  const handleRoundStartReceived = (event: any) => {
+    console.log('📩 Procesando ROUND_START:', event.data);
+    
+    const { letter, listId, versionId, listName, categories, timerDuration, timestamp } = event.data;
+    
+    // 1. Actualizar letra
+    setCurrentLetter(letter);
+    
+    // 2. Actualizar lista (con datos del evento)
+    setCurrentList({
+      id: listId,
+      name: listName,
+      categories: categories || []
+    });
+    
+    // 3. Limpiar arrays
+    const numCategories = categories?.length || 12;
+    setAnswers(Array(numCategories).fill(''));
+    setScores(Array(numCategories).fill(-1));
+    
+    const config = getCurrentConfig();
+    setPlayerScores(Array(config.numberOfPlayers).fill(''));
+    
+    // 4. Calcular delay de red
+    const delay = Date.now() - timestamp;
+    const adjustedDuration = timerDuration - delay;
+    
+    console.log(`⏱️ Timer: duración=${timerDuration}ms, delay=${delay}ms, ajustado=${adjustedDuration}ms`);
+    
+    // 5. Crear e iniciar timer sincronizado
+    const timerConfig = {
+      minMinutes: config.timerMinMinutes,
+      maxMinutes: config.timerMaxMinutes,
+      showTimer: config.showTimer,
+      warningSeconds: config.warningSeconds
+    };
+    
+    timerRef.current = new GameTimer(timerConfig);
+    
+    // Inyectar duración ajustada directamente
+    // (Necesitaremos modificar GameTimer para esto)
+    timerRef.current.setDuration(adjustedDuration);
+    
+    setShowTimer(config.showTimer);
+    
+    // 6. Iniciar timer
+    soundManager.startTimer();
+    
+    timerRef.current.start(
+      (remaining) => setTimeRemaining(remaining),
+      () => handleTimeUp(),
+      config.warningEnabled 
+        ? () => Alert.alert('¡ATENCIÓN!', '¡Quedan pocos segundos!')
+        : undefined
+    );
+    
+    // 7. Cambiar a playing
+    setGameMode('playing');
+    setIsFirstTime(false);
+    
+    console.log('✅ ROUND_START procesado correctamente');
+  };
+
   const initializeGame = () => {
     if (timerRef.current) {
       timerRef.current.stop();
@@ -147,6 +234,22 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     
     const letter = getRandomLetter(gameConfig.availableLetters);
     setCurrentLetter(letter);
+
+    if (gameConfig.onlineGameInProgress && gameConfig.isMasterDevice) {
+      const timerDuration = timerRef.current.getDuration(); // Obtener duración calculada
+      
+      connectionManager.startRound({
+        letter: letter,
+        listId: currentList.id,
+        versionId: gameConfig.selectedVersionId,
+        listName: currentList.name,
+        categories: currentList.categories,
+        timerDuration: timerDuration
+      });
+      
+      console.log('📤 ROUND_START enviado:', { letter, listName: currentList.name, duration: timerDuration });
+    }
+
     setGameMode('playing');
     setIsFirstTime(false);
     
@@ -171,20 +274,31 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     startNewGame();
   };
 
-  const handleLetterContainerPress = () => {
-    // 1. Si es dispositivo ESCLAVO (y no freeMode)
-    if (!config.isMasterDevice && !config.freeMode) {
-      // Solo funciona en waiting para ir a scoring
-      if (gameMode === 'waiting') {
-        if (config.paperMode) {
-          setGameMode('offlineScoring');
-        } else {
-          setGameMode('scoring');
-        }
-      }
-      return; // ← SALIR AQUÍ, no ejecutar el resto
+const handleLetterContainerPress = () => {
+    // Si es ESCLAVO en partida ONLINE
+    if (!config.isMasterDevice && config.onlineGameInProgress) {
+      // NO hacer nada en waiting, esperar ROUND_START
+      return;
     }
     
+    // Si es ESCLAVO en partida OFFLINE
+    if (!config.isMasterDevice && !config.freeMode) {
+      if (gameMode === 'waiting') {
+        // 1. Si es dispositivo ESCLAVO (y no freeMode)
+        if (!config.isMasterDevice && !config.freeMode) {
+          // Solo funciona en waiting para ir a scoring
+          if (gameMode === 'waiting') {
+            if (config.paperMode) {
+              setGameMode('offlineScoring');
+            } else {
+              setGameMode('scoring');
+            }
+          }
+          return; // ← SALIR AQUÍ, no ejecutar el resto
+        }
+      }
+      return;
+    }
     // 2. Si llegamos aquí, es MAESTRO o freeMode
     // → TODO EL CÓDIGO ACTUAL SE MANTIENE IGUAL
     if (gameMode === 'waiting') {
@@ -276,13 +390,29 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     );
   };
 
-const updateAnswer = (index: number, text: string) => {
-  if (gameMode === 'playing' || (gameMode === 'waiting' && !config.isMasterDevice)) {
-    const newAnswers = [...answers];
-    newAnswers[index] = text;
-    setAnswers(newAnswers);
-  }
-};
+  /*
+  const updateAnswer = (index: number, text: string) => {
+    if (gameMode === 'playing' || (gameMode === 'waiting' && !config.isMasterDevice)) {
+      const newAnswers = [...answers];
+      newAnswers[index] = text;
+      setAnswers(newAnswers);
+    }
+  };
+  */
+
+  const updateAnswer = (index: number, text: string) => {
+    const config = getCurrentConfig(); // <-- FIX: Obtener config fresca
+    
+    // Condición idéntica a la que usaremos en la prop 'editable'
+    const isEditable = gameMode === 'playing' || 
+                      (gameMode === 'waiting' && !config.isMasterDevice && !config.onlineGameInProgress);
+
+    if (isEditable) {
+      const newAnswers = [...answers];
+      newAnswers[index] = text;
+      setAnswers(newAnswers);
+    }
+  };
 
   const updateScore = (index: number, score: number) => {
     const newScores = [...scores];
@@ -516,6 +646,7 @@ const updateAnswer = (index: number, text: string) => {
         ]}
         onPress={handleLetterContainerPress}
         //disabled={!config.isMasterDevice && !config.freeMode}
+        disabled={!config.isMasterDevice && config.onlineGameInProgress}
       >
 
 <Text style={{ 
@@ -527,13 +658,21 @@ const updateAnswer = (index: number, text: string) => {
   gameMode: {gameMode}
 </Text>
 
-
-        {(config.isMasterDevice || config.freeMode) && <Text style={styles.letter}>{currentLetter}</Text>}
+        {((config.isMasterDevice || config.freeMode) || 
+          (config.onlineGameInProgress && !config.isMasterDevice)) && 
+          <Text style={styles.letter}>{currentLetter}</Text>
+        }
         {gameMode === 'waiting' && (
           <>
             {(config.isMasterDevice || config.freeMode) ? (
               <Text style={styles.statusText}>PULSA PARA COMENZAR</Text>
-            ) : (
+            ) : (              
+              // MODO ONLINE ESCLAVO
+              config.onlineGameInProgress ? (
+                <Text style={[styles.statusText, { fontSize: 14, textAlign: 'center'  }]}>
+                  ESPERANDO A QUE EL ORGANIZADOR COMIENCE LA RONDA
+                </Text>
+              ) : (
               <>
                 <Text style={[styles.statusText, { fontSize: 14, textAlign: 'center' }]}>
                   LA LETRA Y EL TEMPORIZADOR SÓLO SE MOSTRARÁN EN EL DISPOSITIVO PRINCIPAL
@@ -542,6 +681,7 @@ const updateAnswer = (index: number, text: string) => {
                   PULSA AQUÍ PARA INTRODUCIR LAS PUNTUACIONES CUANDO ACABE EL TIEMPO
                 </Text>
               </>
+              )
             )}
           </>
         )}
@@ -556,7 +696,9 @@ const updateAnswer = (index: number, text: string) => {
             <Text style={styles.statusText}>PULSA PARA NUEVA LETRA</Text>
           </View>
         )}
-        {showTimer && gameMode === 'playing' && (config.isMasterDevice || config.freeMode) && (
+        {showTimer && gameMode === 'playing' && 
+          ((config.isMasterDevice || config.freeMode) || 
+          (config.onlineGameInProgress && !config.isMasterDevice)) && (
           <Text style={styles.timer}>{formatTime(timeRemaining)}</Text>
         )}
       </TouchableOpacity>
@@ -566,32 +708,38 @@ const updateAnswer = (index: number, text: string) => {
         {gameMode === 'offlineScoring' && (
           <View style={styles.offlineScoringContainer}>
             <Text style={styles.offlineScoringTitle}>INTRODUCE LAS PUNTUACIONES</Text>
-            {config.playerNames.slice(0, config.numberOfPlayers).map((name, index) => (
-              <View key={index} style={styles.playerScoreRow}>
-                <Text style={styles.playerScoreName}>{name}:</Text>
-                {index === 0 && !config.paperMode ? (
-                  // Jugador 1 en modo normal: no editable
-                  <View style={styles.playerScoreInputDisabled}>
-                    <Text style={styles.playerScoreTextDisabled}>
-                      {playerScores[0]?.toString() || '0'}
-                    </Text>
-                  </View>
-                ) : (
-                  // Demás jugadores o modo papel: editable
-                  <TextInput
-                    style={styles.playerScoreInput}
-                    value={playerScores[index]?.toString() || ''}
-                    onChangeText={(text) => updatePlayerScore(index, text)}
-                    keyboardType="numeric"
-                    placeholder=""
-                  />
-                )}
-              </View>
-            ))}
+            {config.playerNames.slice(0, config.numberOfPlayers).map((name, index) => {
+              // En modo online, solo mostrar MI puntuación (índice 0)
+              if (config.onlineGameInProgress && index !== 0) {
+                return null;
+              }
+              
+              return (
+                <View key={index} style={styles.playerScoreRow}>
+                  <Text style={styles.playerScoreName}>{name}:</Text>
+                  {index === 0 && !config.paperMode ? (
+                    // Jugador 1 en modo normal: no editable
+                    <View style={styles.playerScoreInputDisabled}>
+                      <Text style={styles.playerScoreTextDisabled}>
+                        {playerScores[0]?.toString() || '0'}
+                      </Text>
+                    </View>
+                  ) : (
+                    // Demás jugadores o modo papel: editable
+                    <TextInput
+                      style={styles.playerScoreInput}
+                      value={playerScores[index]?.toString() || ''}
+                      onChangeText={(text) => updatePlayerScore(index, text)}
+                      keyboardType="numeric"
+                      placeholder=""
+                    />
+                  )}
+                </View>
+              );
+            })}
             <TouchableOpacity style={styles.saveButton} onPress={handleSaveScore}>
               <Text style={styles.saveButtonText}>GUARDAR PUNTUACIÓN</Text>
             </TouchableOpacity>
-            
           </View>
         )}
 
@@ -679,18 +827,19 @@ const updateAnswer = (index: number, text: string) => {
                   )}
                 </View>
                 
-{!config.paperMode && !config.freeMode && (gameMode === 'waiting' || gameMode === 'playing') && (
-  <TextInput
-    style={styles.answerInputFlat}
-    value={answers[index]}
-    onChangeText={(text) => updateAnswer(index, text)}
-    editable={
-      gameMode === 'playing' || 
-      (gameMode === 'waiting' && !config.isMasterDevice)
-    }
-  />
-)}
-                
+                {!config.paperMode && !config.freeMode && (gameMode === 'waiting' || gameMode === 'playing') && (
+                  <TextInput
+                    style={styles.answerInputFlat}
+                    value={answers[index]}
+                    onChangeText={(text) => updateAnswer(index, text)}
+                    editable={
+                      gameMode === 'playing' || 
+                      (gameMode === 'waiting' && !config.isMasterDevice && !config.onlineGameInProgress)
+                      //(gameMode === 'waiting' && !config.isMasterDevice)
+                    }
+                  />
+                )}
+                                
                 {gameMode === 'scoring' && !config.paperMode && (
                   <Text style={styles.answerTextFlat}>
                     {answers[index] || '(sin respuesta)'}

@@ -35,6 +35,10 @@ export class GameTimer {
     this.warningSeconds = config.warningSeconds;
   }
 
+  setDuration(durationMs: number): void {
+    this.duration = durationMs-700;
+  }
+
   start(
     onTick: (timeRemaining: number) => void,
     onComplete: () => void,
