@@ -815,15 +815,6 @@ const handleLetterContainerPress = () => {
         disabled={!config.isMasterDevice && config.onlineGameInProgress}
       >
 
-<Text style={{ 
-  color: '#fff', 
-  fontSize: 14, 
-  marginTop: 6, 
-  opacity: 0.8 
-}}>
-  gameMode: {gameMode}
-</Text>
-
         {((config.isMasterDevice || config.freeMode) || 
           (config.onlineGameInProgress && !config.isMasterDevice)) && 
           <Text style={styles.letter}>{currentLetter}</Text>

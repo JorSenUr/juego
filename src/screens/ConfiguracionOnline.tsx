@@ -79,7 +79,6 @@ const ConfiguracionOnline = ({ navigate, goBack }: ConfiguracionOnlineProps) => 
     setConnectedPlayers(currentPlayers.length > 0 ? [...currentPlayers] : [trimmedName]);
     await updateConfig({ 
       isMasterDevice: true,
-      onlineGameInProgress: true,
     });
   };
 
@@ -104,11 +103,16 @@ const ConfiguracionOnline = ({ navigate, goBack }: ConfiguracionOnlineProps) => 
       setUserRole('slave');
       await updateConfig({
         isMasterDevice: false,
-        onlineGameInProgress: true,
         lastServerIdentifier: idNum,
       });
       
-      connectionManager.onEvent(async (event) => {
+      // Limpiar listener anterior si existe
+      if (serverEventListenerRef.current) {
+        connectionManager.removeEventListener(serverEventListenerRef.current);
+      }
+      
+      // Crear y guardar el listener
+      const listener = async (event: any) => {
         if (event.type === 'PLAYERS_LIST_UPDATE') {
           setConnectedPlayers(event.data.players);
         }
@@ -129,7 +133,10 @@ const ConfiguracionOnline = ({ navigate, goBack }: ConfiguracionOnlineProps) => 
           console.log('✅ Config sincronizado, navegando a PantallaJuego');
           navigate('PantallaJuego');
         }
-      });
+      };
+      
+      connectionManager.onEvent(listener);
+      serverEventListenerRef.current = listener;
         
       console.log('✅ Conectado a partida');
     } else {
@@ -165,7 +172,7 @@ const ConfiguracionOnline = ({ navigate, goBack }: ConfiguracionOnlineProps) => 
       endGameAlertEnabled: config.endGameAlertEnabled,
       endGameAlertTitle: config.endGameAlertTitle
     });
-    
+    await updateConfig({ onlineGameInProgress: true });
     navigate('PantallaJuego');
   };
 

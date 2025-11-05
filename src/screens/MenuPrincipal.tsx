@@ -76,6 +76,9 @@ const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
           { 
             text: 'TERMINAR', 
             onPress: async () => {
+              // Marcar false antes de GAME_FINALIZE para eitar falso abandono
+              await updateConfig({ onlineGameInProgress: false });              
+              
               // Enviar GAME_FINALIZE a todos
               connectionManager.sendEvent({
                 type: 'GAME_FINALIZE',
@@ -86,7 +89,6 @@ const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
 
               await finalizeCurrentGame();
               await connectionManager.disconnect();
-              await updateConfig({ onlineGameInProgress: false });
               
               Alert.alert('Partida Terminada', 'La partida se ha guardado en el historial.', [
                 { text: 'OK', onPress: () => navigate('Puntuaciones') }

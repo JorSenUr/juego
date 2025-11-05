@@ -75,7 +75,7 @@ const App = () => {
   // ========== LISTENER GLOBAL PARA GAME FINALIZE==========
   useEffect(() => {
     const handleEvents = async (event: any) => {
-      console.log(`👂 App.tsx listener recibió: ${event.type}`);
+      //console.log(`👂 App.tsx listener recibió: ${event.type}`);
 
       if (event.type === 'GAME_FINALIZE') {
         const config = getCurrentConfig();
@@ -89,7 +89,7 @@ const App = () => {
         
         await finalizeCurrentGame();
         await connectionManager.disconnect();
-        connectionManager.onEvent(handleEvents);
+        //connectionManager.onEvent(handleEvents);
         await updateConfig({ onlineGameInProgress: false });
         
         Alert.alert('Partida Terminada', 'El organizador ha terminado la partida. Tus puntuaciones se han guardado.', [

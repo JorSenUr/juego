@@ -237,61 +237,100 @@ class ConnectionManager {
   // ========== CLIENTE (ESCLAVO) ==========
 
   async connectToDevice(serverIp: string, playerName: string): Promise<boolean> {
-    try {
-      this.isServer = false;
-      this.myName = playerName;
+    return new Promise((resolve) => {
+      let resolved = false;
       
-      // Crear socket cliente
-      this.clientSocket = TcpSocket.createConnection(
-        {
-          port: SERVER_PORT,
-          host: serverIp,
-        },
-        () => {
-          console.log('✅ Conectado al servidor');
-          
-          // Enviar PLAYER_JOINED
-          this.sendEvent({
-            type: 'PLAYER_JOINED',
-            data: { playerName }
-          });
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          console.log('⏱️ Timeout: No se pudo conectar en 5 segundos');
+          if (this.clientSocket) {
+            this.clientSocket.destroy();
+            this.clientSocket = null;
+          }
+          resolve(false);
         }
-      );
-
-      let buffer = '';
-      this.clientSocket.on('data', (data: any) => {
-        try {
-          buffer += data.toString('utf8');
-          const messages = buffer.split('\n');
-          buffer = messages.pop() || '';
-          
-          messages.forEach(message => {
-            if (message.trim()) {
-              const event: GameEvent = JSON.parse(message);
-              console.log('📩 Mensaje recibido:', event.type);
+      }, 5000);
+      
+      try {
+        this.isServer = false;
+        this.myName = playerName;
+        
+        this.clientSocket = TcpSocket.createConnection(
+          {
+            port: SERVER_PORT,
+            host: serverIp,
+          },
+          () => {
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              console.log('✅ Conectado al servidor');
               
-              this.handleReceivedEvent(event);
-              this.eventCallbacks.forEach(callback => callback(event));
+              this.sendEvent({
+                type: 'PLAYER_JOINED',
+                data: { playerName }
+              });
+              
+              // Listener permanente de error (solo después de conectar)
+              this.clientSocket.on('error', (error: any) => {
+                console.error('❌ Error en conexión establecida:', error);
+              });
+              
+              resolve(true);
             }
-          });
-        } catch (error) {
-          console.error('❌ Error procesando mensaje:', error);
+          }
+        );
+
+        // Listener temporal de error (para capturar ECONNREFUSED inicial)
+        this.clientSocket.once('error', (error: any) => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            console.error('❌ Error en conexión:', error);
+            if (this.clientSocket) {
+              this.clientSocket.destroy();
+              this.clientSocket = null;
+            }
+            resolve(false);
+          }
+        });
+
+        // Listeners permanentes de datos
+        let buffer = '';
+        this.clientSocket.on('data', (data: any) => {
+          try {
+            buffer += data.toString('utf8');
+            const messages = buffer.split('\n');
+            buffer = messages.pop() || '';
+            
+            messages.forEach(message => {
+              if (message.trim()) {
+                const event: GameEvent = JSON.parse(message);
+                console.log('📩 Mensaje recibido:', event.type);
+                
+                this.handleReceivedEvent(event);
+                this.eventCallbacks.forEach(callback => callback(event));
+              }
+            });
+          } catch (error) {
+            console.error('❌ Error procesando mensaje:', error);
+          }
+        });
+
+        this.clientSocket.on('close', () => {
+          console.log('🔌 Desconectado del servidor');
+        });
+        
+      } catch (error) {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          console.error('❌ Error al crear socket:', error);
+          resolve(false);
         }
-      });
-
-      this.clientSocket.on('error', (error: any) => {
-        console.error('❌ Error en conexión:', error);
-      });
-
-      this.clientSocket.on('close', () => {
-        console.log('🔌 Desconectado del servidor');
-      });
-
-      return true;
-    } catch (error) {
-      console.error('❌ Error al conectar:', error);
-      return false;
-    }
+      }
+    });
   }
 
   // ========== MANEJO DE EVENTOS ==========
