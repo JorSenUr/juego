@@ -176,6 +176,12 @@ const App = () => {
       return;
     }
 
+    // Configuracion: volver a donde vino
+    if (currentScreen === 'Configuracion') {
+      setCurrentScreen(configReturnScreen);
+      return;
+    }
+
     // PantallaJuego: depende del modo
     if (currentScreen === 'PantallaJuego') {
       if (gameMode === 'scoring') {
@@ -283,7 +289,11 @@ const App = () => {
         
         {currentScreen === 'SeleccionModoPartida' && <SeleccionModoPartida {...navigationProps} />} 
         
-        {currentScreen === 'ConfiguracionOnline' && <ConfiguracionOnline {...navigationProps} />} 
+        {(currentScreen === 'ConfiguracionOnline' || configReturnScreen === 'ConfiguracionOnline') && (
+          <View style={{ display: currentScreen === 'ConfiguracionOnline' ? 'flex' : 'none', flex: 1 }}>
+            <ConfiguracionOnline {...navigationProps} />
+          </View>
+        )}
         
         {currentScreen === 'PantallaJuego' && (
           <PantallaJuego {...navigationProps} onGameModeChange={setGameMode} gameMode={gameMode} />

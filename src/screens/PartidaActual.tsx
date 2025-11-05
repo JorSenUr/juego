@@ -10,6 +10,10 @@ import {
 } from 'react-native';
 import { loadCurrentGame, clearCurrentGame, finalizeCurrentGame, CurrentGame } from '../data/storage';
 import type { GameHistoryEntry } from '../data/storage';
+import { getCurrentConfig } from '../utils/gameConfig';
+
+
+
 
 interface PartidaActualProps {
   navigate: (screen: 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida') => void;
@@ -21,6 +25,7 @@ const PartidaActual = ({ navigate, goBack, hideTerminarButton = false }: Partida
   const [currentGame, setCurrentGame] = useState<CurrentGame | null>(null);
   const [selectedRound, setSelectedRound] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const config = getCurrentConfig();
 
   useEffect(() => {
     loadCurrentGameData();
@@ -293,14 +298,26 @@ const PartidaActual = ({ navigate, goBack, hideTerminarButton = false }: Partida
         </View>
 
         {/* BOTONES DE ACCIÓN */}
-        {!hideTerminarButton && (
-          <TouchableOpacity style={styles.finalizeButton} onPress={handleFinalizeGame}>
-            <Text style={styles.finalizeButtonText}>TERMINAR PARTIDA</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity style={styles.clearButton} onPress={handleClearCurrentGame}>
-          <Text style={styles.clearButtonText}>BORRAR PARTIDA ACTUAL</Text>
+        <TouchableOpacity 
+          style={styles.continueButton}
+          onPress={() => navigate('PantallaJuego')}
+        >
+          <Text style={styles.buttonText}>CONTINUAR A SIGUIENTE RONDA</Text>
         </TouchableOpacity>
+
+        {/* Solo maestros: botones de gestión */}
+        {(!config.onlineGameInProgress || config.isMasterDevice) && (
+          <>
+            {!hideTerminarButton && (
+              <TouchableOpacity style={styles.finalizeButton} onPress={handleFinalizeGame}>
+                <Text style={styles.finalizeButtonText}>TERMINAR PARTIDA</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.clearButton} onPress={handleClearCurrentGame}>
+              <Text style={styles.clearButtonText}>BORRAR PARTIDA ACTUAL</Text>
+            </TouchableOpacity>
+          </>
+        )}
 
       </ScrollView>
     </SafeAreaView>
@@ -342,10 +359,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  color: '#FFFFFF',
+  fontSize: 16,
+  fontWeight: 'bold',
+  fontFamily: 'Roboto',
+},
   section: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -596,6 +614,23 @@ const styles = StyleSheet.create({
     right: 8,
     fontSize: 16,
   },
+  buttonContainer: {
+    marginTop: 16,
+  },
+  continueButton: {
+  backgroundColor: '#FF8C00',  // Naranja
+  paddingVertical: 16,
+  paddingHorizontal: 24,
+  borderRadius: 8,
+  alignItems: 'center',
+  marginHorizontal: 16,
+  marginBottom: 12,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.3,
+  shadowRadius: 6,
+  elevation: 8,
+},
 });
 
 export default PartidaActual;

@@ -5,7 +5,6 @@ import { Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
 
-// ========== TIPOS DE EVENTOS ==========
 export type GameEvent = 
   | {
       type: 'PLAYER_JOINED';
@@ -49,12 +48,20 @@ export type GameEvent =
       };
     }
   | {
-    type: 'GAME_FINALIZE';
-    data: {};
+      type: 'GAME_FINALIZE';
+      data: {};
     }   
   | {
       type: 'TIMER_END';
       data: {};
+    }
+  | {
+      type: 'SCORE_SUBMIT';
+      data: {
+        playerName: string;
+        score: number;
+        answers: string[];
+      };
     }
   | {
       type: 'ALL_SCORES';
@@ -71,22 +78,12 @@ export type GameEvent =
       };
     }
   | {
-      type: 'ALL_SCORES';
-      data: {
-        scores: Array<{
-          playerName: string;
-          score: number;
-          answers: string[];
-        }>;
-      };
-    }
-  | {
       type: 'SCORE_ACK';
       data: {
         playerName: string;
       };
     }
-    | {
+  | {
       type: 'HEARTBEAT_PING';
       data: {
         timestamp: number;
@@ -590,6 +587,13 @@ class ConnectionManager {
         type: 'SCORE_SUBMIT',
         data: { playerName, score, answers }
       });
+    }
+  }
+
+  forceAllScores(): void {
+    if (this.isServer && this.submittedScores.size > 0) {
+      console.log('⚠️ Forzando envío de puntuaciones con jugadores faltantes');
+      this.sendAllScores();
     }
   }
 

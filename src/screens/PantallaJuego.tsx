@@ -130,6 +130,10 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
       if (event.type === 'ALL_SCORES') {
         handleAllScoresReceived(event);
       }
+
+      if (event.type === 'TIMER_END') {
+        handleTimerEndReceived(event);
+      }
     };
     
     connectionManager.onEvent(handleOnlineEvents);
@@ -201,6 +205,32 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     setIsFirstTime(false);
     
     console.log('✅ ROUND_START procesado correctamente');
+  };
+
+  const handleTimerEndReceived = (event: any) => {
+    console.log('📩 Procesando TIMER_END');
+    
+    const config = getCurrentConfig();
+    
+    // Detener timer
+    if (timerRef.current) {
+      timerRef.current.stop();
+    }
+    soundManager.stopTimer();
+    
+    // Ir a scoring u offlineScoring según config
+    if (config.paperMode) {
+      setGameMode('offlineScoring');
+    } else {
+      setGameMode('scoring');
+    }
+    
+    // Alert opcional
+    if (config.endGameAlertEnabled) {
+      Alert.alert(config.endGameAlertTitle, '', [{ text: 'PUNTUAR' }]);
+    }
+    
+    console.log('✅ TIMER_END procesado');
   };
 
   const handleAllScoresReceived = async (event: any) => {
@@ -371,6 +401,13 @@ const handleLetterContainerPress = () => {
     // Detener sonidos
     soundManager.stopTimer();
     const config = getCurrentConfig();
+
+
+    // Enviar TIMER_END si online y maestro
+    if (config.onlineGameInProgress && config.isMasterDevice) {
+      connectionManager.endTimer();
+    }
+
     
     // Modo libre: volver directamente a waiting
     if (config.freeMode) {
@@ -425,6 +462,10 @@ const handleLetterContainerPress = () => {
             // Detener sonidos
             soundManager.stopTimer();            
             const config = getCurrentConfig();
+
+            if (config.onlineGameInProgress && config.isMasterDevice) {
+              connectionManager.endTimer();
+            }
             
             // Modo libre: volver directamente a waiting SIN alert
             if (config.freeMode) {
@@ -740,6 +781,24 @@ const handleLetterContainerPress = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  const handleForceAllScores = () => {
+    Alert.alert(
+      'Forzar Continuación',
+      '¿Quieres continuar sin esperar a todos los jugadores?\n\nLos jugadores que no han enviado su puntuación recibirán 0 puntos.',
+      [
+        { text: 'CANCELAR', style: 'cancel' },
+        {
+          text: 'FORZAR',
+          style: 'destructive',
+          onPress: () => {
+            // El connectionManager debe enviar ALL_SCORES con lo que tenga
+            connectionManager.forceAllScores();
+          }
+        }
+      ]
+    );
+  };
+
   const config = getCurrentConfig();
   const currentVersion = getVersionById(config.selectedVersionId);
 
@@ -821,6 +880,16 @@ const handleLetterContainerPress = () => {
                 <Text style={[styles.offlineScoringTitle, { fontSize: 14, marginTop: 10, fontWeight: 'normal' }]}>
                   Tu puntuación ha sido enviada
                 </Text>
+                
+                {/* NUEVO: Botón solo para maestro */}
+                {config.isMasterDevice && (
+                  <TouchableOpacity 
+                    style={[styles.saveButton, { backgroundColor: '#FF8C00', marginTop: 20 }]}
+                    onPress={handleForceAllScores}
+                  >
+                    <Text style={styles.saveButtonText}>⚠️ FORZAR CONTINUACIÓN</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ) : (
               // UI normal

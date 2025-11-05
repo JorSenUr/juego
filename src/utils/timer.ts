@@ -36,7 +36,7 @@ export class GameTimer {
   }
 
   setDuration(durationMs: number): void {
-    this.duration = durationMs-700;
+    this.duration = durationMs;
   }
 
   start(
