@@ -57,11 +57,17 @@ export type GameEvent =
       data: {};
     }
   | {
-      type: 'SCORE_SUBMIT';
+      type: 'ALL_SCORES';
       data: {
-        playerName: string;
-        score: number;
-        answers: string[];
+        scores: Array<{
+          playerName: string;
+          score: number;
+          answers: string[];
+        }>;
+        letter: string;
+        listName: string;
+        listId: number;
+        versionId: string;
       };
     }
   | {
@@ -122,6 +128,13 @@ class ConnectionManager {
     endGameAlertEnabled: boolean;
     endGameAlertTitle: string;
   } | null = null;
+  private currentRoundLetter: string = '';
+  private currentRoundListName: string = '';
+  private currentRoundListId: number = 0;
+  private currentRoundVersionId: string = '';
+
+
+
 
   // ========== OBTENER IP LOCAL ==========
   private async getLocalIpAddress(): Promise<string> {
@@ -404,11 +417,13 @@ class ConnectionManager {
       answers: data.answers
     });
     
-    // Enviar ACK
-    this.sendEventToPlayer(data.playerName, {
-      type: 'SCORE_ACK',
-      data: { playerName: data.playerName }
-    });
+    // Solo enviar ACK si NO es el propio maestro
+    if (data.playerName !== this.myName) {
+      this.sendEventToPlayer(data.playerName, {
+        type: 'SCORE_ACK',
+        data: { playerName: data.playerName }
+      });
+    }
     
     console.log('✅ Puntuación recibida de:', data.playerName);
     
@@ -424,10 +439,19 @@ class ConnectionManager {
       answers: data.answers
     }));
     
-    this.sendEvent({
-      type: 'ALL_SCORES',
-      data: { scores }
-    });
+    const event = {
+      type: 'ALL_SCORES' as const,
+      data: { 
+        scores,
+        letter: this.currentRoundLetter,
+        listName: this.currentRoundListName,
+        listId: this.currentRoundListId,
+        versionId: this.currentRoundVersionId
+      }
+    };
+    
+    this.sendEvent(event);
+    this.eventCallbacks.forEach(callback => callback(event));
     
     this.submittedScores.clear();
     this.gameState = 'waiting';
@@ -531,6 +555,13 @@ class ConnectionManager {
   }) {
     if (this.isServer) {
       this.gameState = 'playing';
+      
+      // Guardar datos de la ronda para ALL_SCORES
+      this.currentRoundLetter = roundData.letter;
+      this.currentRoundListName = roundData.listName;
+      this.currentRoundListId = roundData.listId;
+      this.currentRoundVersionId = roundData.versionId;
+      
       this.sendEvent({
         type: 'ROUND_START',
         data: {

@@ -86,6 +86,7 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
   const [openDropdownIndex, setOpenDropdownIndex] = useState<number | null>(null);
   const timerRef = useRef<GameTimer | null>(null);
   const [soundsMuted, setSoundsMuted] = useState<boolean>(getCurrentConfig().soundsMuted);
+  const [waitingForScores, setWaitingForScores] = useState<boolean>(false);
 
 
   // FUNCIONES Y EFECTOS
@@ -124,6 +125,10 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
       
       if (event.type === 'ROUND_START') {
         handleRoundStartReceived(event);
+      }
+      
+      if (event.type === 'ALL_SCORES') {
+        handleAllScoresReceived(event);
       }
     };
     
@@ -196,6 +201,58 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     setIsFirstTime(false);
     
     console.log('✅ ROUND_START procesado correctamente');
+  };
+
+  const handleAllScoresReceived = async (event: any) => {
+    console.log('📩 Procesando ALL_SCORES:', event.data);
+    
+    const config = getCurrentConfig();
+    
+    // 1. Preparar datos de la ronda con TODAS las puntuaciones
+    const currentDate = new Date();
+    const dateString = `${currentDate.getDate().toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}/${currentDate.getFullYear()} - ${currentDate.getHours().toString().padStart(2, '0')}:${currentDate.getMinutes().toString().padStart(2, '0')}`;
+    
+    // Calcular duración
+    let duration = '0:00';
+    if (timerRef.current) {
+      const totalDuration = timerRef.current.getDuration();
+      const elapsed = totalDuration - timeRemaining;
+      duration = formatTime(elapsed);
+    }
+    
+    const roundData = {
+      date: dateString,
+      letter: event.data.letter,
+      listName: event.data.listName,
+      listId: event.data.listId,
+      versionId: event.data.versionId,
+      players: event.data.scores.map((s: any) => ({
+        name: s.playerName,
+        score: s.score,
+        answers: s.answers
+      })),
+      duration: duration,
+      mode: (config.paperMode ? 'paper' : 'normal') as 'normal' | 'paper' | 'free'
+    };
+    
+    // 2. Guardar ronda localmente
+    try {
+      await saveCurrentGameRound(roundData);
+      console.log('✅ Ronda guardada con todas las puntuaciones');
+    } catch (error) {
+      console.error('❌ Error al guardar ronda:', error);
+    }
+    
+    // 3. Limpiar estado
+    setWaitingForScores(false);
+    setGameMode('waiting');
+    setCurrentLetter('?');
+    setAnswers(Array(currentList.categories.length).fill(''));
+    setScores(Array(currentList.categories.length).fill(-1));
+    setPlayerScores(Array(config.numberOfPlayers).fill(''));
+    
+    // 4. Navegar a PartidaActual
+    navigate('PartidaActual');
   };
 
   const initializeGame = () => {
@@ -471,10 +528,60 @@ const handleLetterContainerPress = () => {
     setGameMode('offlineScoring');
   };
 
- const handleSaveScore = async () => {
-  const config = getCurrentConfig();
+  const handleSaveScore = async () => {
+    const config = getCurrentConfig();
+    
+    // ========== MODO ONLINE ==========
+    if (config.onlineGameInProgress) {
+      // Preparar datos del jugador local
+      const myScore = config.paperMode 
+        ? (playerScores[0] || 0)           // En papel: puntuación introducida
+        : getTotalScore();                 // Normal: calculada
+      
+      const myAnswers = config.paperMode 
+        ? []                               // En papel: sin respuestas
+        : [...answers];                    // Normal: todas las respuestas
+      
+      // Enviar SCORE_SUBMIT al maestro
+      connectionManager.submitScore(
+        config.playerNames[0],  // Mi nombre
+        myScore,
+        myAnswers
+      );
+      
+      console.log('📤 SCORE_SUBMIT enviado:', { 
+        playerName: config.playerNames[0], 
+        score: myScore, 
+        answersCount: myAnswers.length 
+      });
+      
+      if (config.onlineGameInProgress) {
+        const myScore = config.paperMode 
+          ? (playerScores[0] || 0)
+          : getTotalScore();
+        
+        const myAnswers = config.paperMode 
+          ? []
+          : [...answers];
+        
+        connectionManager.submitScore(
+          config.playerNames[0],
+          myScore,
+          myAnswers
+        );
+        
+        console.log('📤 SCORE_SUBMIT enviado');
+        
+        // Mostrar indicador de espera
+        setWaitingForScores(true);
+        
+        return;
+      }
+
+      return;
+    }
   
-  // Preparar los datos de la partida
+  // ========== MODO OFFLINE ==========
   const currentDate = new Date();
   const dateString = `${currentDate.getDate().toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}/${currentDate.getFullYear()} - ${currentDate.getHours().toString().padStart(2, '0')}:${currentDate.getMinutes().toString().padStart(2, '0')}`;
   
@@ -707,39 +814,52 @@ const handleLetterContainerPress = () => {
         {/* MODO PAPEL Y BOLI: Puntuaciones simples por jugador */}
         {gameMode === 'offlineScoring' && (
           <View style={styles.offlineScoringContainer}>
-            <Text style={styles.offlineScoringTitle}>INTRODUCE LAS PUNTUACIONES</Text>
-            {config.playerNames.slice(0, config.numberOfPlayers).map((name, index) => {
-              // En modo online, solo mostrar MI puntuación (índice 0)
-              if (config.onlineGameInProgress && index !== 0) {
-                return null;
-              }
-              
-              return (
-                <View key={index} style={styles.playerScoreRow}>
-                  <Text style={styles.playerScoreName}>{name}:</Text>
-                  {index === 0 && !config.paperMode ? (
-                    // Jugador 1 en modo normal: no editable
-                    <View style={styles.playerScoreInputDisabled}>
-                      <Text style={styles.playerScoreTextDisabled}>
-                        {playerScores[0]?.toString() || '0'}
-                      </Text>
+            {waitingForScores ? (
+              // Indicador de espera (modo online)
+              <View>
+                <Text style={styles.offlineScoringTitle}>⏳ ESPERANDO A OTROS JUGADORES...</Text>
+                <Text style={[styles.offlineScoringTitle, { fontSize: 14, marginTop: 10, fontWeight: 'normal' }]}>
+                  Tu puntuación ha sido enviada
+                </Text>
+              </View>
+            ) : (
+              // UI normal
+              <>
+                <Text style={styles.offlineScoringTitle}>INTRODUCE LAS PUNTUACIONES</Text>
+                {config.playerNames.slice(0, config.numberOfPlayers).map((name, index) => {
+                  // En modo online, solo mostrar MI puntuación (índice 0)
+                  if (config.onlineGameInProgress && index !== 0) {
+                    return null;
+                  }
+                  
+                  return (
+                    <View key={index} style={styles.playerScoreRow}>
+                      <Text style={styles.playerScoreName}>{name}:</Text>
+                      {index === 0 && !config.paperMode ? (
+                        // Jugador 1 en modo normal: no editable
+                        <View style={styles.playerScoreInputDisabled}>
+                          <Text style={styles.playerScoreTextDisabled}>
+                            {playerScores[0]?.toString() || '0'}
+                          </Text>
+                        </View>
+                      ) : (
+                        // Demás jugadores o modo papel: editable
+                        <TextInput
+                          style={styles.playerScoreInput}
+                          value={playerScores[index]?.toString() || ''}
+                          onChangeText={(text) => updatePlayerScore(index, text)}
+                          keyboardType="numeric"
+                          placeholder=""
+                        />
+                      )}
                     </View>
-                  ) : (
-                    // Demás jugadores o modo papel: editable
-                    <TextInput
-                      style={styles.playerScoreInput}
-                      value={playerScores[index]?.toString() || ''}
-                      onChangeText={(text) => updatePlayerScore(index, text)}
-                      keyboardType="numeric"
-                      placeholder=""
-                    />
-                  )}
-                </View>
-              );
-            })}
-            <TouchableOpacity style={styles.saveButton} onPress={handleSaveScore}>
-              <Text style={styles.saveButtonText}>GUARDAR PUNTUACIÓN</Text>
-            </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity style={styles.saveButton} onPress={handleSaveScore}>
+                  <Text style={styles.saveButtonText}>GUARDAR PUNTUACIÓN</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         )}
 
