@@ -199,9 +199,13 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     Keyboard.dismiss();
   };
 
-  const handleContinue = () => {
-    navigate('PantallaJuego');
-  };
+    const handleContinue = async () => {
+      // Autoconfiguramos como maestro si es un único jugador
+      if (numberOfPlayers === 1) {
+        await updateConfig({ isMasterDevice: true });
+      }
+      navigate('PantallaJuego');
+    };
 
   /*const toggleDeviceRole = async () => {
     const newValue = !isMasterDevice;
