@@ -199,7 +199,11 @@ const ConfiguracionPartida = ({ navigate, goBack, screenHistory = [] }: Configur
     Keyboard.dismiss();
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
+    // Solo autoconfiguramos como maestro si es un único jugador
+    if (numberOfPlayers === 1) {
+      await updateConfig({ isMasterDevice: true });
+    }
     navigate('PantallaJuego');
   };
 
@@ -642,7 +646,7 @@ const styles = StyleSheet.create({
       color: '#F5E6D3',
       marginBottom: 4,
     },
-    startGameButton: {
+    /*startGameButton: {
       backgroundColor: '#4CAF50',
       borderWidth: 2,
       borderColor: '#388E3C',
@@ -656,7 +660,7 @@ const styles = StyleSheet.create({
       backgroundColor: '#666666',
       borderColor: '#555555',
       opacity: 0.6,
-    },
+    },*/
     cancelButton: {
       backgroundColor: '#D32F2F',
       borderWidth: 2,

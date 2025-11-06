@@ -406,12 +406,24 @@ class ConnectionManager {
         this.pendingReconnections.push(playerName);
         console.log('⏳ Reconexión pendiente:', playerName);
         
-        // Reenviar GAME_START solo a este jugador
-        this.sendEventToPlayer(playerName, {
-          type: 'GAME_START',
-          data: this.currentGameConfig
-        });
-        console.log(`📤 GAME_START reenviado a ${playerName}`);
+        // Emitir PLAYER_JOINED para notificar al maestro
+        const event = {
+          type: 'PLAYER_JOINED' as const,
+          data: { playerName }
+        };
+        this.eventCallbacks.forEach(callback => callback(event));
+        
+        // SOLO reenviar GAME_START si estamos en waiting
+        // Si estamos en playing/scoring, esperar a la próxima ronda
+        if (this.gameState === 'waiting') {
+          this.sendEventToPlayer(playerName, {
+            type: 'GAME_START',
+            data: this.currentGameConfig
+          });
+          console.log(`📤 GAME_START reenviado a ${playerName} (maestro en waiting)`);
+        } else {
+          console.log(`⏸️ ${playerName} esperará hasta la próxima ronda (maestro en ${this.gameState})`);
+        }
       }
     }
   }
@@ -501,9 +513,17 @@ class ConnectionManager {
       console.log('✅ Procesando reconexiones pendientes:', this.pendingReconnections);
       
       this.pendingReconnections.forEach(playerName => {
+        // Añadir a connectedPlayers si no está ya
         if (!this.connectedPlayers.includes(playerName)) {
           this.connectedPlayers.push(playerName);
         }
+        
+        // Enviar GAME_START ahora que estamos en waiting
+        this.sendEventToPlayer(playerName, {
+          type: 'GAME_START',
+          data: this.currentGameConfig!
+        });
+        console.log(`📤 GAME_START enviado a ${playerName} (maestro volvió a waiting)`);
       });
       
       this.pendingReconnections = [];
@@ -581,31 +601,35 @@ class ConnectionManager {
     }
   }
     
-  startRound(roundData: {
+  startRound(data: {
     letter: string;
     listId: number;
     versionId: string;
     listName: string;
-    categories?: string[];
+    categories: string[];
     timerDuration: number;
   }) {
-    if (this.isServer) {
-      this.gameState = 'playing';
-      
-      // Guardar datos de la ronda para ALL_SCORES
-      this.currentRoundLetter = roundData.letter;
-      this.currentRoundListName = roundData.listName;
-      this.currentRoundListId = roundData.listId;
-      this.currentRoundVersionId = roundData.versionId;
-      
-      this.sendEvent({
-        type: 'ROUND_START',
-        data: {
-          ...roundData,
-          timestamp: Date.now()
-        }
+    this.gameState = 'playing';
+    
+    // Enviar GAME_START a jugadores que estaban esperando reconexión
+    if (this.pendingReconnections.length > 0) {
+      console.log(`📤 Enviando GAME_START a jugadores reconectados: ${this.pendingReconnections.join(', ')}`);
+      this.pendingReconnections.forEach(playerName => {
+        this.sendEventToPlayer(playerName, {
+          type: 'GAME_START',
+          data: this.currentGameConfig!
+        });
       });
+      this.pendingReconnections = [];
     }
+    
+    this.sendEvent({
+      type: 'ROUND_START',
+      data: {
+        ...data,
+        timestamp: Date.now()
+      }
+    });
   }
 
   endTimer() {
