@@ -134,6 +134,10 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
       if (event.type === 'TIMER_END') {
         handleTimerEndReceived(event);
       }
+
+      if (event.type === 'ROUND_ABANDONED') {
+        handleRoundAbandonedReceived();
+      }
     };
     
     connectionManager.onEvent(handleOnlineEvents);
@@ -205,6 +209,34 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     setIsFirstTime(false);
     
     console.log('✅ ROUND_START procesado correctamente');
+  };
+
+  const handleRoundAbandonedReceived = () => {
+    console.log('📩 Procesando ROUND_ABANDONED');
+    
+    const config = getCurrentConfig();
+    
+    // Detener timer y sonidos
+    if (timerRef.current) {
+      timerRef.current.stop();
+    }
+    soundManager.stopTimerSilent();
+    
+    // Volver a waiting
+    setGameMode('waiting');
+    setCurrentLetter('?');
+    setAnswers(Array(currentList.categories.length).fill(''));
+    setScores(Array(currentList.categories.length).fill(-1));
+    setPlayerScores(Array(config.numberOfPlayers).fill(''));
+    
+    // Alert opcional
+    Alert.alert(
+      'Ronda Abandonada',
+      'El organizador ha abandonado la ronda actual',
+      [{ text: 'OK' }]
+    );
+    
+    console.log('✅ ROUND_ABANDONED procesado');
   };
 
   const handleTimerEndReceived = (event: any) => {
@@ -449,6 +481,46 @@ const handleLetterContainerPress = () => {
 
   const handleManualTimeUp = () => {
     Alert.alert(
+      '¿QUÉ DESEAS HACER?',
+      'Puedes terminar el tiempo ahora o abandonar esta ronda',
+      [
+        { text: 'CANCELAR', style: 'cancel' },
+        {
+          text: 'ABANDONAR RONDA',
+          style: 'destructive',
+          onPress: () => {
+            // Detener timer y sonidos
+            if (timerRef.current) {
+              timerRef.current.stop();
+            }
+            soundManager.stopTimerSilent();
+            
+            // Volver a waiting
+            setGameMode('waiting');
+            setCurrentLetter('?');
+            setAnswers(Array(currentList.categories.length).fill(''));
+            setScores(Array(currentList.categories.length).fill(-1));
+            const config = getCurrentConfig();
+            setPlayerScores(Array(config.numberOfPlayers).fill(''));
+            if (config.onlineGameInProgress && config.isMasterDevice) {
+              connectionManager.sendEvent({
+                type: 'ROUND_ABANDONED',
+                data: {}
+              });
+            }        
+          }
+        },
+        {
+          text: 'TERMINAR TIEMPO',
+          onPress: () => handleTimeUp()
+        }
+      ]
+    );
+  };
+
+
+  /*const handleTimeUp = () => {
+    Alert.alert(
       '¿TERMINAR TIEMPO?',
       '¿Estás seguro de que quieres terminar el tiempo manualmente?',
       [
@@ -487,6 +559,7 @@ const handleLetterContainerPress = () => {
       ]
     );
   };
+  */
 
   /*
   const updateAnswer = (index: number, text: string) => {

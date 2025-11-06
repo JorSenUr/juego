@@ -39,6 +39,9 @@ const ConfiguracionOnline = ({ navigate, goBack }: ConfiguracionOnlineProps) => 
 
   const handleIniciarPartida = async () => {
     const trimmedName = playerName.trim() || 'Organizador';
+    await updateConfig({ 
+      isMasterDevice: true,
+    })
 
     const started = await connectionManager.startServer(trimmedName);
     if (!started) {
@@ -76,10 +79,7 @@ const ConfiguracionOnline = ({ navigate, goBack }: ConfiguracionOnlineProps) => 
     setUserRole('master');
     setPlayerName(trimmedName);
     const currentPlayers = connectionManager.getConnectedPlayers();
-    setConnectedPlayers(currentPlayers.length > 0 ? [...currentPlayers] : [trimmedName]);
-    await updateConfig({ 
-      isMasterDevice: true,
-    });
+    setConnectedPlayers(currentPlayers.length > 0 ? [...currentPlayers] : [trimmedName]);;
   };
 
   const handleUnirseAPartida = async (identifier: string) => {

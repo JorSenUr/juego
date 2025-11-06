@@ -262,6 +262,11 @@ const App = () => {
       return false;
     }
 
+    // Ocultar botón "Atrás" durante playing
+    if (currentScreen === 'PantallaJuego' && gameMode === 'playing') return false;
+    
+    if (currentScreen === 'PantallaJuego' && gameMode === 'scoring') return false;
+
     // PantallaJuego: mostrar en todos los modos EXCEPTO scoring
     if (currentScreen === 'PantallaJuego') {
       return gameMode !== 'scoring';

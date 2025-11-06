@@ -55,6 +55,9 @@ export type GameEvent =
       type: 'TIMER_END';
       data: {};
     }
+  | { type: 'ROUND_ABANDONED';
+      data: {}
+    }
   | {
       type: 'SCORE_SUBMIT';
       data: {
