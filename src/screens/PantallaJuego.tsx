@@ -915,8 +915,8 @@ const handleLetterContainerPress = () => {
             )}
           </>
         )}
-        {gameMode === 'playing' && (
-          <Text style={styles.statusText}>PULSA PARA TERMINAR</Text>
+        {gameMode === 'playing' && config.isMasterDevice && (
+          <Text style={styles.statusText}>PULSA PARA TERMINAR </Text>
         )}
         {gameMode === 'scoring' && (
           <Text style={styles.statusText}>PUNTUANDO: {getTotalScore()} PUNTOS</Text>
