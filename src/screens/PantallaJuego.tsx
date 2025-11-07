@@ -136,22 +136,22 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
       
       if (event.type === 'ROUND_START') {
         handleRoundStartReceived(event);
-        console.log('🎮 PantallaJuego procesó evento:', event.type);
+        console.log(`🎮 PantallaJuego procesó evento: ${event.type}`);
       }
       
       if (event.type === 'ALL_SCORES') {
         handleAllScoresReceived(event);
-        console.log('🎮 PantallaJuego procesó evento:', event.type);
+        console.log(`🎮 PantallaJuego procesó evento: ${event.type}`);
       }
 
       if (event.type === 'TIMER_END') {
         handleTimerEndReceived(event);
-        console.log('🎮 PantallaJuego procesó evento:', event.type);
+        console.log(`🎮 PantallaJuego procesó evento: ${event.type}`);
       }
 
       if (event.type === 'ROUND_ABANDONED') {
         handleRoundAbandonedReceived();
-        console.log('🎮 PantallaJuego procesó evento:', event.type);
+        console.log(`🎮 PantallaJuego procesó evento: ${event.type}`);
       }
     };
     
@@ -164,7 +164,7 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
 
   // ========== HANDLER ROUND_START ==========
   const handleRoundStartReceived = (event: any) => {
-    console.log('📩 Procesando ROUND_START:', event.data);
+    console.log(`📩 handleRoundStartReceived procesando ROUND_START: ${event.data}`);
     
     const { letter, listId, versionId, listName, categories, timerDuration, timestamp } = event.data;
     
@@ -223,11 +223,11 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     setGameMode('playing');
     setIsFirstTime(false);
     
-    console.log('✅ ROUND_START procesado correctamente');
+    console.log('✅ ROUND_START procesado correctamente en handleRoundStartReceived');
   };
 
   const handleRoundAbandonedReceived = () => {
-    console.log('📩 Procesando ROUND_ABANDONED');
+    console.log('📩 handleRoundAbandonedReceived procesando ROUND_ABANDONED');
     
     const config = getCurrentConfig();
     
@@ -251,11 +251,11 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
       [{ text: 'OK' }]
     );
     
-    console.log('✅ ROUND_ABANDONED procesado');
+    console.log('✅ ROUND_ABANDONED procesado en handleRoundAbandonedReceived');
   };
 
   const handleTimerEndReceived = (event: any) => {
-    console.log('📩 Procesando TIMER_END');
+    console.log('📩 handleTimerEndReceived procesando TIMER_END');
     
     const config = getCurrentConfig();
     
@@ -277,11 +277,11 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
       Alert.alert(config.endGameAlertTitle, '', [{ text: 'PUNTUAR' }]);
     }
     
-    console.log('✅ TIMER_END procesado');
+    console.log('✅ TIMER_END procesado en handleTimerEndReceived');
   };
 
   const handleAllScoresReceived = async (event: any) => {
-    console.log('📩 Procesando ALL_SCORES:', event.data);
+    console.log('📩 handleAllScoresReceived procesando ALL_SCORES:', event.data);
     
     const config = getCurrentConfig();
     
