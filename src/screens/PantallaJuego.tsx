@@ -121,6 +121,18 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     if (!config.onlineGameInProgress) return;
     
     const handleOnlineEvents = (event: any) => {
+
+      if (event.type === 'PLAYER_JOINED') {
+        // Solo mostrar alerta si somos maestros
+        if (config.isMasterDevice) {
+          console.log('🎮 PantallaJuego Maestro procesó evento:', event.type);
+          Alert.alert(
+            '🔄 Jugador reconectado',
+            `${event.data.playerName} se ha reconectado a la partida.`,
+            [{ text: 'OK' }]
+          );
+        }
+      }
       
       if (event.type === 'ROUND_START') {
         handleRoundStartReceived(event);

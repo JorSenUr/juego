@@ -185,7 +185,7 @@ class ConnectionManager {
           
           // Si es PLAYER_JOINED, guardar el socket con el nombre del jugador
           if (event.type === 'PLAYER_JOINED') {
-            console.log(`📩 CM1 Mensaje procesado: ${event.type}`);
+            console.log(`📩 CM1 Evento procesado por ${this.myName}: ${event.type}`);
             const playerName = event.data.playerName;
             
             // ⚠️ Limpiar socket viejo ANTES de guardar el nuevo
@@ -549,7 +549,7 @@ class ConnectionManager {
     if (socket) {
       const message = JSON.stringify(event) + '\n';
       socket.write(message);
-      console.log(`📤 CM3 Evento (in sendEventToPlayer) enviado a ${playerName}: ${event.type}`);
+      //console.log(`📤 CM3 Evento (in sendEventToPlayer) enviado a ${playerName}: ${event.type}`);
     } else {
       console.error(`❌ sendEventToPlayer: No hay socket para ${playerName}`);
       console.log(`🔍 currentGameConfig:`, this.currentGameConfig);
