@@ -91,7 +91,8 @@ const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
               await connectionManager.disconnect();
               
               Alert.alert('Partida Terminada', 'La partida se ha guardado en el historial.', [
-                { text: 'OK', onPress: () => navigate('Puntuaciones') }
+                //{ text: 'OK', onPress: () => navigate('Puntuaciones') }
+                { text: 'OK', onPress: () => navigate('MenuPrincipal') }
               ]);
             }
           }
