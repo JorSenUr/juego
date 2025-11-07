@@ -32,7 +32,7 @@ const SeleccionModoPartida = ({ navigate, goBack }: SeleccionModoPartidaProps) =
   };
 
   const handlePartidaOnline = async () => {
-    await updateConfig({ freeMode: false });
+    await updateConfig({ freeMode: false, paperMode: false });
     navigate('ConfiguracionOnline');
   };
 
