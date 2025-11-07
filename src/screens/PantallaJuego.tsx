@@ -121,22 +121,25 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     if (!config.onlineGameInProgress) return;
     
     const handleOnlineEvents = (event: any) => {
-      console.log('🎮 PantallaJuego recibió evento:', event.type);
       
       if (event.type === 'ROUND_START') {
         handleRoundStartReceived(event);
+        console.log('🎮 PantallaJuego procesó evento:', event.type);
       }
       
       if (event.type === 'ALL_SCORES') {
         handleAllScoresReceived(event);
+        console.log('🎮 PantallaJuego procesó evento:', event.type);
       }
 
       if (event.type === 'TIMER_END') {
         handleTimerEndReceived(event);
+        console.log('🎮 PantallaJuego procesó evento:', event.type);
       }
 
       if (event.type === 'ROUND_ABANDONED') {
         handleRoundAbandonedReceived();
+        console.log('🎮 PantallaJuego procesó evento:', event.type);
       }
     };
     

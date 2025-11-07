@@ -182,10 +182,10 @@ class ConnectionManager {
       messages.forEach(message => {
         if (message.trim()) {
           const event: GameEvent = JSON.parse(message);
-          console.log(`📩 Mensaje recibido: ${event.type}`);
           
           // Si es PLAYER_JOINED, guardar el socket con el nombre del jugador
           if (event.type === 'PLAYER_JOINED') {
+            console.log(`📩 CM1 Mensaje procesado: ${event.type}`);
             const playerName = event.data.playerName;
             
             // ⚠️ Limpiar socket viejo ANTES de guardar el nuevo
@@ -229,7 +229,7 @@ class ConnectionManager {
       });
 
       this.server.listen({ port: SERVER_PORT, host: '0.0.0.0' });
-      //this.startHeartbeat();
+      this.startHeartbeat();
       return true;
     } catch (error) {
       console.error('❌ Error al iniciar servidor:', error);
@@ -310,8 +310,9 @@ class ConnectionManager {
             messages.forEach(message => {
               if (message.trim()) {
                 const event: GameEvent = JSON.parse(message);
-                console.log('📩 Mensaje recibido:', event.type);
-                
+                if (event.type!='HEARTBEAT_PING'){
+                  console.log(`📩 CM2 Evento procesado por ${playerName}: ${event.type}`);
+                }
                 this.handleReceivedEvent(event);
                 this.eventCallbacks.forEach(callback => callback(event));
               }
@@ -442,9 +443,7 @@ class ConnectionManager {
         data: { playerName }
       };
       
-      console.log('🔵 ANTES de sendEvent');
       this.sendEvent(event);
-      console.log('🟢 DESPUÉS de sendEvent');
       
       this.eventCallbacks.forEach(callback => callback(event));
     }
@@ -523,7 +522,9 @@ class ConnectionManager {
       this.clients.forEach((socket, playerName) => {
         try {
           socket.write(message);
-          console.log(`📤 Evento enviado: ${event.type} a ${playerName}`);
+          if (event.type!='HEARTBEAT_PING'){
+            console.log(`📤 CM1 Evento enviado: ${event.type} a ${playerName}`);
+          }
         } catch (error) {
           console.error('❌ Error al enviar a', playerName, error);
         }
@@ -533,7 +534,9 @@ class ConnectionManager {
       if (this.clientSocket) {
         try {
           this.clientSocket.write(message);
-          console.log(`📤 Evento enviado: ${event.type}`);
+          if (event.type!='HEARTBEAT_PONG'){
+            console.log(`📤 CM2 Evento enviado al servidor por ${this.myName}: ${event.type}`);
+          }
         } catch (error) {
           console.error(`❌ Error al enviar: ${error}`);
         }
@@ -546,7 +549,7 @@ class ConnectionManager {
     if (socket) {
       const message = JSON.stringify(event) + '\n';
       socket.write(message);
-      console.log(`📤 Evento (in sendEventToPlayer) enviado a ${playerName}: ${event.type}`);
+      console.log(`📤 CM3 Evento (in sendEventToPlayer) enviado a ${playerName}: ${event.type}`);
     } else {
       console.error(`❌ sendEventToPlayer: No hay socket para ${playerName}`);
       console.log(`🔍 currentGameConfig:`, this.currentGameConfig);
@@ -673,7 +676,7 @@ class ConnectionManager {
   async disconnect() {
     try {
       // Detener heartbeat si existe
-      //rthis.stopHeartbeat();
+      this.stopHeartbeat();
       
       // SERVIDOR: cerrar servidor y todos los sockets cliente
       if (this.isServer && this.server) {
