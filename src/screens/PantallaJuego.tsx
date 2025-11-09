@@ -445,6 +445,11 @@ const handleLetterContainerPress = () => {
   };
 
   const handleTimeUp = () => {
+    // DETENER EL TEMPORIZADOR
+    if (timerRef.current) {
+      timerRef.current.stop();
+    }
+
     // Detener sonidos
     soundManager.stopTimer();
     const config = getCurrentConfig();
@@ -710,103 +715,104 @@ const handleLetterContainerPress = () => {
       return;
     }
   
-  // ========== MODO OFFLINE ==========
-  const currentDate = new Date();
-  const dateString = `${currentDate.getDate().toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}/${currentDate.getFullYear()} - ${currentDate.getHours().toString().padStart(2, '0')}:${currentDate.getMinutes().toString().padStart(2, '0')}`;
-  
-  let playersData: Array<{ name: string; score: number; answers?: string[] }> = [];
-  let gameMode: 'normal' | 'paper' | 'free' = 'normal';
-  
-  if (config.freeMode) {
-    gameMode = 'free';
-  } else if (config.paperMode) {
-    gameMode = 'paper';
-    playersData = config.playerNames.slice(0, config.numberOfPlayers).map((name, index) => ({
-      name,
-      score: playerScores[index] || 0,
-      answers: []
-    }));
-  } else {
-    gameMode = 'normal';
-    playersData = config.playerNames.slice(0, config.numberOfPlayers).map((name, index) => ({
-      name,
-      score: index === 0 ? getTotalScore() : (playerScores[index] || 0),
-      answers: index === 0 ? [...answers] : []
-    }));
-  }
-  
-  // Calcular duración del juego
-  let duration = '0:00';
-  if (timerRef.current) {
-    const totalDuration = timerRef.current.getDuration();
-    const elapsed = totalDuration - timeRemaining;
-    duration = formatTime(elapsed);
-  }
-  
-  const roundData = {
-    date: dateString,
-    letter: currentLetter,
-    listName: currentList.name,
-    listId: currentList.id,
-    versionId: config.selectedVersionId,
-    players: playersData,
-    duration: duration,
-    mode: gameMode
-  };
-  
-  // Solo guardar si NO es modo libre
-  if (!config.freeMode) {
-    try {
-      await saveCurrentGameRound(roundData);
-      
-      console.log('Ronda guardada exitosamente en historial y partida actual');
-    } catch (error) {
-      console.error('Error al guardar la ronda:', error);
+    // ========== MODO OFFLINE ==========
+    const currentDate = new Date();
+    const dateString = `${currentDate.getDate().toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}/${currentDate.getFullYear()} - ${currentDate.getHours().toString().padStart(2, '0')}:${currentDate.getMinutes().toString().padStart(2, '0')}`;
+    
+    let playersData: Array<{ name: string; score: number; answers?: string[] }> = [];
+    let gameMode: 'normal' | 'paper' | 'free' = 'normal';
+    
+    if (config.freeMode) {
+      gameMode = 'free';
+    } else if (config.paperMode) {
+      gameMode = 'paper';
+      playersData = config.playerNames.slice(0, config.numberOfPlayers).map((name, index) => ({
+        name,
+        score: playerScores[index] || 0,
+        answers: []
+      }));
+    } else {
+      gameMode = 'normal';
+      playersData = config.playerNames.slice(0, config.numberOfPlayers).map((name, index) => ({
+        name,
+        score: index === 0 ? getTotalScore() : (playerScores[index] || 0),
+        answers: index === 0 ? [...answers] : []
+      }));
+    }
+    
+    // Calcular duración del juego
+    let duration = '0:00';
+    if (timerRef.current) {
+      const totalDuration = timerRef.current.getDuration();
+      const elapsed = totalDuration - timeRemaining;
+      duration = formatTime(elapsed);
+    }
+    
+    const roundData = {
+      date: dateString,
+      letter: currentLetter,
+      listName: currentList.name,
+      listId: currentList.id,
+      versionId: config.selectedVersionId,
+      players: playersData,
+      duration: duration,
+      mode: gameMode
+    };
+    
+    // Solo guardar si NO es modo libre
+    if (!config.freeMode) {
+      try {
+        await saveCurrentGameRound(roundData);
+        
+        console.log('Ronda guardada exitosamente en historial y partida actual');
+      } catch (error) {
+        console.error('Error al guardar la ronda:', error);
+        Alert.alert(
+          'Error',
+          'No se pudo guardar la ronda. Por favor, intenta de nuevo.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+    }
+    
+    // Mostrar mensaje de confirmación
+    if (config.paperMode || !config.freeMode) {
       Alert.alert(
-        'Error',
-        'No se pudo guardar la ronda. Por favor, intenta de nuevo.',
-        [{ text: 'OK' }]
-      );
-      return;
+        'Puntuación guardada',
+        'La ronda ha sido registrada.',
+        [
+          {
+      text: 'TERMINAR PARTIDA',
+      style: 'destructive',
+      onPress: () => {
+        Alert.alert(
+          'Partida Terminada',
+          'La partida se ha guardado en el historial.',
+          [{ 
+            text: 'OK',
+            onPress: async () => {
+              await finalizeCurrentGame();
+              navigate('Puntuaciones');
+            }
+          }]
+        );
+      }
+    },
+    
+    { 
+      text: 'NUEVA RONDA', 
+      onPress: () => {
+        setGameMode('waiting');
+        setCurrentLetter('?');
+        setAnswers(Array(currentList.categories.length).fill(''));
+        setScores(Array(currentList.categories.length).fill(-1));
+        setPlayerScores(Array(config.numberOfPlayers).fill(''));
+      }
+    },
+    { text: 'VER RESULTADOS', onPress: () => navigate('PartidaActual') }
+      ]);
     }
-  }
-  
-  // Mostrar mensaje de confirmación
-  if (config.paperMode || !config.freeMode) {
-    Alert.alert(
-      'Puntuación guardada',
-      'La ronda ha sido registrada.',
-      [
-        {
-    text: 'TERMINAR PARTIDA',
-    style: 'destructive',
-    onPress: () => {
-      Alert.alert(
-        'Partida Terminada',
-        'La partida se ha guardado en el historial.',
-        [{ 
-          text: 'OK',
-          onPress: async () => {
-            await finalizeCurrentGame();
-            navigate('Puntuaciones');
-          }
-        }]
-      );
-    }
-  },
-  { 
-    text: 'NUEVA RONDA', 
-    onPress: () => {
-      setGameMode('waiting');
-      setCurrentLetter('?');
-      setAnswers(Array(currentList.categories.length).fill(''));
-      setScores(Array(currentList.categories.length).fill(-1));
-      setPlayerScores(Array(config.numberOfPlayers).fill(''));
-    }
-  },
-  { text: 'VER RESULTADOS', onPress: () => navigate('PartidaActual') }
-    ]);
-  }
   };
 
   const toggleMute = async () => {

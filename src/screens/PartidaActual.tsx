@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { loadCurrentGame, clearCurrentGame, finalizeCurrentGame, CurrentGame } from '../data/storage';
-import { getCurrentConfig } from '../utils/gameConfig';
+import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
 import { connectionManager } from '../utils/connectionManager';
 
 
@@ -111,13 +111,29 @@ const PartidaActual = ({ navigate, goBack, hideTerminarButton = false }: Partida
         { 
           text: 'TERMINAR', 
           onPress: async () => {
+            // Si es partida online y maestro, notificar a esclavos
+            if (config.onlineGameInProgress && config.isMasterDevice) {
+              // Marcar false antes de GAME_FINALIZE
+              await updateConfig({ onlineGameInProgress: false });
+              
+              // Enviar GAME_FINALIZE a todos
+              connectionManager.sendEvent({
+                type: 'GAME_FINALIZE',
+                data: {}
+              });
+              
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          
+            // Finalizar partida
             await finalizeCurrentGame();
             Alert.alert(
               'Partida Terminada',
               'La partida se ha guardado en el historial.',
               [{ 
                 text: 'OK', 
-                onPress: () => navigate('Puntuaciones') // ← Cambiar de MenuPrincipal a Puntuaciones
+                //onPress: () => navigate('Puntuaciones') // ← Cambiar de MenuPrincipal a Puntuaciones
+                onPress: () => navigate('MenuPrincipal')
               }]
             );
           }

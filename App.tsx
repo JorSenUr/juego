@@ -14,15 +14,15 @@ import Puntuaciones from './src/screens/Puntuaciones';
 import ReglasJuego from './src/screens/ReglasJuego';
 import ConfiguracionPartida from './src/screens/ConfiguracionPartida';
 import PartidaActual from './src/screens/PartidaActual';
-import { initializeConfig, getCurrentConfig } from './src/utils/gameConfig';
+import { initializeConfig, getCurrentConfig, updateConfig } from './src/utils/gameConfig';
 import { isGameInProgress, loadCurrentGame } from './src/data/storage';
 import { AppState } from 'react-native';
 import { soundManager } from './src/utils/soundManager';
 import { connectionManager } from './src/utils/connectionManager';
 import { finalizeCurrentGame } from './src/data/storage';
-import { updateConfig } from './src/utils/gameConfig';
 import SeleccionModoPartida from './src/screens/SeleccionModoPartida';
 import ConfiguracionOnline from './src/screens/ConfiguracionOnline';
+
 
 
 
@@ -262,10 +262,14 @@ const App = () => {
       return false;
     }
 
+    const config = getCurrentConfig();
+
     // Ocultar botón "Atrás" durante playing
     if (currentScreen === 'PantallaJuego' && gameMode === 'playing') return false;
     
     if (currentScreen === 'PantallaJuego' && gameMode === 'scoring') return false;
+
+    if (currentScreen === 'PantallaJuego' && gameMode === 'offlineScoring' && config.paperMode) return false;
 
     // PantallaJuego: mostrar en todos los modos EXCEPTO scoring
     if (currentScreen === 'PantallaJuego') {
