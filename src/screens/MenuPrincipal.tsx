@@ -56,7 +56,7 @@ const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
   const handleComenzarPartida = async () => {
     await updateConfig({ freeMode: false });
     
-    if (hasGameInProgress) {
+    if (hasGameInProgress || isOnlineGame) {
       navigate('PantallaJuego');
     } else {
       navigate('SeleccionModoPartida'); // ← Era ConfiguracionPartida
