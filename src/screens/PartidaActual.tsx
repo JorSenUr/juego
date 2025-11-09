@@ -9,8 +9,8 @@ import {
   Alert,
 } from 'react-native';
 import { loadCurrentGame, clearCurrentGame, finalizeCurrentGame, CurrentGame } from '../data/storage';
-import type { GameHistoryEntry } from '../data/storage';
 import { getCurrentConfig } from '../utils/gameConfig';
+import { connectionManager } from '../utils/connectionManager';
 
 
 
@@ -29,6 +29,22 @@ const PartidaActual = ({ navigate, goBack, hideTerminarButton = false }: Partida
 
   useEffect(() => {
     loadCurrentGameData();
+  }, []);
+
+  // ========== LISTENER PARA EVENTOS ONLINE ==========
+  useEffect(() => {
+    const handleOnlineEvents = (event: any) => {
+      if (event.type === 'RETURN_TO_WAITING') {
+        console.log('🎮 PartidaActual recibió RETURN_TO_WAITING, navegando a PantallaJuego');
+        navigate('PantallaJuego');
+      }
+    };
+    
+    connectionManager.onEvent(handleOnlineEvents);
+    
+    return () => {
+      connectionManager.removeEventListener(handleOnlineEvents);
+    };
   }, []);
 
   const loadCurrentGameData = async () => {
@@ -297,22 +313,31 @@ const PartidaActual = ({ navigate, goBack, hideTerminarButton = false }: Partida
           })}
         </View>
 
-        {/* BOTONES DE ACCIÓN */}
-        <TouchableOpacity 
-          style={styles.continueButton}
-          onPress={() => navigate('PantallaJuego')}
-        >
-          <Text style={styles.buttonText}>CONTINUAR A SIGUIENTE RONDA</Text>
-        </TouchableOpacity>
-
-        {/* Solo maestros: botones de gestión */}
+        {/* BOTONES - Solo maestros o partidas offline */}
         {(!config.onlineGameInProgress || config.isMasterDevice) && (
           <>
+            <TouchableOpacity 
+              style={styles.continueButton}
+              onPress={() => {
+                // Si es maestro online, avisar a esclavos
+                if (config.onlineGameInProgress && config.isMasterDevice) {
+                  connectionManager.sendEvent({
+                    type: 'RETURN_TO_WAITING',
+                    data: {}
+                  });
+                }
+                navigate('PantallaJuego');
+              }}
+            >
+              <Text style={styles.buttonText}>CONTINUAR A SIGUIENTE RONDA</Text>
+            </TouchableOpacity>
+
             {!hideTerminarButton && (
               <TouchableOpacity style={styles.finalizeButton} onPress={handleFinalizeGame}>
                 <Text style={styles.finalizeButtonText}>TERMINAR PARTIDA</Text>
               </TouchableOpacity>
             )}
+            
             <TouchableOpacity style={styles.clearButton} onPress={handleClearCurrentGame}>
               <Text style={styles.clearButtonText}>BORRAR PARTIDA ACTUAL</Text>
             </TouchableOpacity>

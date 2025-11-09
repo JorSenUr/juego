@@ -48,6 +48,10 @@ export type GameEvent =
       };
     }
   | {
+      type: 'RETURN_TO_WAITING';
+      data: {};
+    }
+  | {
       type: 'GAME_FINALIZE';
       data: {};
     }   
