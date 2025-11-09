@@ -799,7 +799,7 @@ const handleLetterContainerPress = () => {
         );
       }
     },
-    
+
     { 
       text: 'NUEVA RONDA', 
       onPress: () => {
@@ -902,10 +902,8 @@ const handleLetterContainerPress = () => {
         style={[
           styles.letterContainer, 
           { backgroundColor: getContainerColor() },
-          //!config.isMasterDevice && !config.freeMode && styles.letterContainerDisabled
         ]}
         onPress={handleLetterContainerPress}
-        //disabled={!config.isMasterDevice && !config.freeMode}
         disabled={!config.isMasterDevice && config.onlineGameInProgress}
       >
 
@@ -941,6 +939,13 @@ const handleLetterContainerPress = () => {
         )}
         {gameMode === 'scoring' && (
           <Text style={styles.statusText}>PUNTUANDO: {getTotalScore()} PUNTOS</Text>
+        )}
+        {gameMode === 'offlineScoring' && (
+          <>
+            <Text>{"\n"}</Text>
+            <Text style={styles.statusText}>PUNTUANDO...</Text>
+            <Text>{"\n"}</Text>
+          </>
         )}
         {gameMode === 'reviewing' && (
           <View style={styles.reviewingContainer}>
