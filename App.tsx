@@ -276,6 +276,10 @@ const App = () => {
       return gameMode !== 'scoring';
     }
 
+    if (currentScreen === 'PartidaActual') {
+      return false;
+    }
+
     // Todas las demás pantallas: sí
     return true;
   };

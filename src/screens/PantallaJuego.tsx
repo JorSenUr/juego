@@ -18,6 +18,28 @@ import { updateConfig } from '../utils/gameConfig';
 import { connectionManager } from '../utils/connectionManager';
 
 
+// Guarda el estado actual en gameConfig
+const getInitialList = (): ScattergoriesList => {
+  try {
+    const config = getCurrentConfig();
+    if (config.randomMode) {
+      return generateRandomList();
+    } else {
+      // Lógica corregida para leer la lista específica
+      const list = getListById(config.selectedVersionId, config.selectedListId);
+      if (list) return list;
+      
+      // Fallbacks por si acaso
+      const version = getVersionById(config.selectedVersionId);
+      return version?.lists[0] || SCATTERGORIES_VERSIONS[0].lists[0];
+    }
+  } catch (error) {
+    console.log('Error initializing list:', error);
+    return SCATTERGORIES_VERSIONS[0].lists[0]; // Fallback absoluto
+  }
+};
+
+
 
 interface PantallaJuegoProps {
   navigate: (screen: 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'PartidaActual') => void;
@@ -29,54 +51,18 @@ interface PantallaJuegoProps {
 type GameMode = 'waiting' | 'playing' | 'scoring' | 'offlineScoring' | 'reviewing';
 
 const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeFromApp }: PantallaJuegoProps) => {
+
   //ESTADOS Y REFERENCIAS
   const [gameMode, setGameMode] = useState<GameMode>(gameModeFromApp || 'waiting');
   const [currentLetter, setCurrentLetter] = useState<string>('?');
-  const [currentList, setCurrentList] = useState(() => {
-    try {
-      const config = getCurrentConfig();
-      if (config.randomMode) {
-        return generateRandomList();
-      } else {
-        const version = getVersionById(config.selectedVersionId);
-        return version?.lists[0] || SCATTERGORIES_VERSIONS[0].lists[0];
-      }
-    } catch (error) {
-      console.log('Error initializing list:', error);
-      return SCATTERGORIES_VERSIONS[0].lists[0];
-    }
-  });
+  const [currentList, setCurrentList] = useState(getInitialList);
   const [answers, setAnswers] = useState<string[]>(() => {
-    try {
-      const config = getCurrentConfig();
-      let list;
-      if (config.randomMode) {
-        list = generateRandomList();
-      } else {
-        const version = getVersionById(config.selectedVersionId);
-        list = version?.lists[0] || SCATTERGORIES_VERSIONS[0].lists[0];
-      }
-      return Array(list.categories.length).fill('');
-    } catch (error) {
-      console.log('Error initializing answers:', error);
-      return Array(12).fill(''); // Fallback
-    }
+    const list = getInitialList();
+    return Array(list.categories.length).fill('');
   });
   const [scores, setScores] = useState<number[]>(() => {
-    try {
-      const config = getCurrentConfig();
-      let list;
-      if (config.randomMode) {
-        list = generateRandomList();
-      } else {
-        const version = getVersionById(config.selectedVersionId);
-        list = version?.lists[0] || SCATTERGORIES_VERSIONS[0].lists[0];
-      }
-      return Array(list.categories.length).fill(-1);
-    } catch (error) {
-      console.log('Error initializing scores:', error);
-      return Array(12).fill(-1); // Fallback
-    }
+    const list = getInitialList();
+    return Array(list.categories.length).fill(-1);
   });
   const [playerScores, setPlayerScores] = useState<number[]>([]);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
@@ -163,10 +149,20 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
   }, []); // Solo montar/desmontar
 
   // ========== HANDLER ROUND_START ==========
-  const handleRoundStartReceived = (event: any) => {
+  const handleRoundStartReceived = async (event: any) => {
     console.log(`📩 handleRoundStartReceived procesando ROUND_START: ${event.data}`);
     
     const { letter, listId, versionId, listName, categories, timerDuration, timestamp } = event.data;
+    
+    try {
+      await updateConfig({ 
+        selectedVersionId: versionId, 
+        selectedListId: listId 
+      });
+      //console.log(`✅ Config global actualizada por esclavo: versionId=${versionId}, listId=${listId}`);
+    } catch (error) {
+      console.error("❌ Error al actualizar config global en esclavo:", error);
+    }
     
     // 1. Actualizar letra
     setCurrentLetter(letter);
@@ -353,8 +349,13 @@ const PantallaJuego = ({ navigate, goBack, onGameModeChange, gameMode: gameModeF
     setPlayerScores(Array(config.numberOfPlayers).fill(''));
   };
 
-  const startNewGame = () => {
+  const startNewGame = async() => {
     const gameConfig = getCurrentConfig();
+
+    if (currentList.id !== gameConfig.selectedListId) {
+    await updateConfig({ selectedListId: currentList.id });
+    //console.log(`💾 Maestro guardó configuración al iniciar ronda: Lista ${currentList.id}`);
+  }
     
     const timerConfig = {
       minMinutes: gameConfig.timerMinMinutes,
