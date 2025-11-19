@@ -146,13 +146,19 @@ const MenuPrincipal = ({ navigate, goBack }: MenuPrincipalProps) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Image 
+        {/*<Image 
           source={require('../assets/logo.png')} 
           style={styles.logo}
           resizeMode="contain"
+        />*/}
+
+        <Image 
+          source={require('../assets/titulo.png')} 
+          style={styles.title}
+          resizeMode="contain"
         />
         
-        <Text style={styles.title}>Scattergories</Text>
+        {/* <Text style={styles.title}>Scattergories</Text> */}
         <Text style={styles.subtitle}>El juego de palabras por categorías</Text>
         
         <View style={styles.buttonContainer}>
@@ -229,18 +235,13 @@ const styles = StyleSheet.create({
   },
   logo: {
     width: 250,
-    height: 160,
-    marginBottom: 40,
+    height: 140,
+    marginBottom: -40,
   },
   title: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#D2691E',
+    width: 350,
+    height: 140,
     marginBottom: 10,
-    textAlign: 'center',
-    textShadowColor: '#000',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
   },
   subtitle: {
     fontSize: 16,
