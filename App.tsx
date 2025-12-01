@@ -32,6 +32,8 @@ const App = () => {
   const [screenTitle, setScreenTitle] = useState<string>('Scattergories');
   const [configReturnScreen, setConfigReturnScreen] = useState<Screen>('MenuPrincipal');
   const [gameReturnScreen, setGameReturnScreen] = useState<Screen>('MenuPrincipal');
+  const [previousAppState, setPreviousAppState] = useState(AppState.currentState);
+  
 
   useEffect(() => {
     const init = async () => {
@@ -54,18 +56,53 @@ const App = () => {
   }, [currentScreen]);
 
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      // Gestión de sonidos
       if (nextAppState === 'background' || nextAppState === 'inactive') {
         soundManager.muteAll();
+        
+        // 💾 GUARDAR datos de reconexión ANTES de que se cierren los sockets
+        const config = getCurrentConfig();
+        if (config.onlineGameInProgress && connectionManager.isConnected()) {
+          console.log('💾 App va a background, guardando datos de reconexión...');
+          connectionManager.saveReconnectionState();
+        }
       } else if (nextAppState === 'active') {
         soundManager.unmuteAll();
       }
+      
+      // Reconexión automática cuando vuelve de background
+      if (previousAppState.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('🔄 App volvió a primer plano, verificando conexión...');
+        const config = getCurrentConfig();
+        
+        if (config.onlineGameInProgress) {
+          console.log('🎮 Partida online en curso, intentando reconectar...');
+          const reconnected = await connectionManager.attemptReconnect();
+          
+          if (reconnected) {
+            Alert.alert(
+              'Reconectado',
+              'Te has reconectado a la partida correctamente.',
+              [{ text: 'OK' }]
+            );
+          } else {
+            Alert.alert(
+              'Error de conexión',
+              'No se pudo reconectar a la partida. Verifica tu conexión.',
+              [{ text: 'OK' }]
+            );
+          }
+        }
+      }
+      
+      setPreviousAppState(nextAppState);
     });
 
     return () => {
       subscription.remove();
     };
-  }, []);
+  }, [previousAppState]);
 
   // ========== LISTENER GLOBAL PARA GAME FINALIZE (Restaurado con logs y textos originales) ==========
   useEffect(() => {

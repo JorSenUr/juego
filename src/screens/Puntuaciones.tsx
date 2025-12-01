@@ -9,11 +9,12 @@ import {
   Alert,
 } from 'react-native';
 import { getCurrentConfig } from '../utils/gameConfig';
-import { loadGameHistory, clearGameHistory, loadCurrentGame } from '../data/storage';
+import { loadGameHistory, clearGameHistory, loadCurrentGame, deleteGameEntry } from '../data/storage';
 import type { GameHistoryEntry } from '../data/storage';
 import PartidaActual from './PartidaActual';
 import { LineChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
+
 
 
 interface PuntuacionesProps {
@@ -243,6 +244,31 @@ const getChartDataNative = () => {
     );
   };
 
+  const deleteGame = (gameId: string) => {
+    Alert.alert(
+      'ELIMINAR PARTIDA',
+      '¿Estás seguro de que quieres eliminar esta partida del historial?',
+      [
+        { text: 'CANCELAR', style: 'cancel' },
+        { 
+          text: 'ELIMINAR', 
+          style: 'destructive',
+          onPress: async () => {
+            // Eliminar todas las rondas con este gameId
+            const roundsToDelete = gameHistory.filter(entry => entry.gameId === gameId);
+            
+            for (const round of roundsToDelete) {
+              await deleteGameEntry(round.id);
+            }
+            
+            // Recargar historial
+            await initializeTab();
+          }
+        }
+      ]
+    );
+  };
+
   const playerStats = getPlayerStats();
   const PLAYER_COLORS = [
     '#FF0000', // Rojo
@@ -346,86 +372,93 @@ const getChartDataNative = () => {
   </View>
 )}
 
-          {/* HISTORIAL DE PARTIDAS */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>HISTORIAL DE PARTIDAS</Text>
-            {(() => {
-              const groupedGames = getGroupedGames();
-              return groupedGames.length > 0 ? (
-                <>
-                  {groupedGames.map((game) => {
-                    const isPaperMode = game.rounds.every(r => r.mode === 'paper');
-                    const hasDetails = !isPaperMode;
-                    
-                    return (
-                      <TouchableOpacity 
-                        key={game.gameId} 
-                        style={styles.gameCard}
-                        onPress={() => hasDetails && setSelectedGame(selectedGame === game.gameId ? null : game.gameId)}
-                        disabled={!hasDetails}
-                      >
-                        {/* Línea compacta: fecha - rondas */}
-                        <Text style={styles.gameCompactHeader}>
-                          {game.date} - {game.roundsCount} {game.roundsCount === 1 ? 'ronda' : 'rondas'}
-                        </Text>
+{/* HISTORIAL DE PARTIDAS */}
+  <View style={styles.section}>
+    <Text style={styles.sectionTitle}>HISTORIAL DE PARTIDAS</Text>
+    {(() => {
+      const groupedGames = getGroupedGames();
+      return groupedGames.length > 0 ? (
+        <>
+          {groupedGames.map((game) => {
+            const isPaperMode = game.rounds.every(r => r.mode === 'paper');
+            const hasDetails = !isPaperMode;
+            
+            return (
+              <TouchableOpacity 
+                key={game.gameId}
+                style={styles.gameCard}
+                onPress={() => hasDetails && setSelectedGame(selectedGame === game.gameId ? null : game.gameId)}
+                disabled={!hasDetails}
+              >
+                {/* Línea compacta: fecha - rondas - icono paperMode */}
+                <Text style={styles.gameCompactHeader}>
+                  {game.date} - {game.roundsCount} {game.roundsCount === 1 ? 'ronda' : 'rondas'}
+                  {isPaperMode && ' 📝'}
+                </Text>
+                
+                {/* Puntuaciones en una línea */}
+                <Text style={styles.gameScoresCompact}>
+                  {game.players.map((p, idx) => (
+                    `${p.name}: ${p.totalScore} pts${idx < game.players.length - 1 ? ' | ' : ''}`
+                  )).join('')}
+                </Text>
+                
+                {/* Botón eliminar - esquina superior derecha */}
+                <TouchableOpacity 
+                  style={styles.deleteButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    deleteGame(game.gameId);
+                  }}
+                >
+                  <Text style={styles.deleteButtonText}>🗑️</Text>
+                </TouchableOpacity>
+                
+                {/* Vista expandida - solo si NO es papel y boli */}
+                {selectedGame === game.gameId && hasDetails && (
+                  <View style={styles.gameDetails}>
+                    <Text style={styles.detailsTitle}>RONDAS:</Text>
+                    {game.rounds.map((round, idx) => (
+                      <View key={round.id} style={styles.roundDetail}>
+                        <View style={styles.roundHeader}>
+                          <Text style={styles.roundNumber}>Ronda {idx + 1}</Text>
+                          <Text style={styles.roundLetter}>Letra: {round.letter}</Text>
+                        </View>
+                        <Text style={styles.roundList}>{round.listName}</Text>
+                        <Text style={styles.roundDuration}>Duración: {round.duration}</Text>
                         
-                        {/* Puntuaciones en una línea */}
-                        <Text style={styles.gameScoresCompact}>
-                          {game.players.map((p, idx) => (
-                            `${p.name}: ${p.totalScore} pts${idx < game.players.length - 1 ? ' | ' : ''}`
-                          )).join('')}
-                        </Text>
-                        
-                        {/* Icono papel y boli */}
-                        {isPaperMode && (
-                          <Text style={styles.paperModeIcon}>📝</Text>
-                        )}
-                        
-                        {/* Vista expandida - solo si NO es papel y boli */}
-                        {selectedGame === game.gameId && hasDetails && (
-                          <View style={styles.gameDetails}>
-                            <Text style={styles.detailsTitle}>RONDAS:</Text>
-                            {game.rounds.map((round, idx) => (
-                              <View key={round.id} style={styles.roundDetail}>
-                                <View style={styles.roundHeader}>
-                                  <Text style={styles.roundNumber}>Ronda {idx + 1}</Text>
-                                  <Text style={styles.roundLetter}>Letra: {round.letter}</Text>
-                                </View>
-                                <Text style={styles.roundList}>{round.listName}</Text>
-                                <Text style={styles.roundDuration}>Duración: {round.duration}</Text>
-                                
-                                {/* Puntuaciones de la ronda */}
-                                {round.players.map((player) => (
-                                  <View key={player.name} style={styles.playerDetail}>
-                                    <Text style={styles.playerDetailName}>
-                                      {player.name}: {player.score} puntos
-                                    </Text>
-                                    {player.answers && player.answers.length > 0 && (
-                                      <View style={styles.answersGrid}>
-                                        {player.answers.map((answer, index) => (
-                                          <Text key={index} style={styles.answer}>
-                                            {index + 1}. {answer || '(sin respuesta)'}
-                                          </Text>
-                                        ))}
-                                      </View>
-                                    )}
-                                  </View>
+                        {/* Puntuaciones de la ronda */}
+                        {round.players.map((player) => (
+                          <View key={player.name} style={styles.playerDetail}>
+                            <Text style={styles.playerDetailName}>
+                              {player.name}: {player.score} puntos
+                            </Text>
+                            {player.answers && player.answers.length > 0 && (
+                              <View style={styles.answersGrid}>
+                                {player.answers.map((answer, index) => (
+                                  <Text key={index} style={styles.answer}>
+                                    {index + 1}. {answer || '(sin respuesta)'}
+                                  </Text>
                                 ))}
                               </View>
-                            ))}
+                            )}
                           </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </>
-              ) : (
-                <Text style={styles.emptyText}>No hay partidas registradas aún.</Text>
-              );
-            })()}
-          </View>
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </>
+      ) : (
+        <Text style={styles.emptyText}>No hay partidas registradas aún.</Text>
+      );
+    })()}
+  </View>
 
-        {/* BOTÓN LIMPIAR HISTORIAL */}
+      {/* BOTÓN LIMPIAR HISTORIAL */}
         {gameHistory.length > 0 && (
           <TouchableOpacity style={styles.clearButton} onPress={clearHistory}>
             <Text style={styles.clearButtonText}>BORRAR HISTORIAL</Text>
@@ -713,6 +746,16 @@ playerTotalScore: {
   color: '#FF0000',
   fontFamily: 'Roboto',
 },
+deleteButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    padding: 4,
+  },
+  deleteButtonText: {
+    fontSize: 20,
+    color: '#FF0000',
+  },
 });
 
 export default Puntuaciones;

@@ -84,24 +84,6 @@ const PartidaActual = ({ navigate, goBack, hideTerminarButton = false }: Partida
     })).sort((a, b) => b.totalScore - a.totalScore);
   };
 
-  const handleClearCurrentGame = () => {
-    Alert.alert(
-      'BORRAR PARTIDA ACTUAL',
-      '¿Estás seguro de que quieres eliminar todas las rondas de la partida actual? Esta acción no se puede deshacer.',
-      [
-        { text: 'CANCELAR', style: 'cancel' },
-        { 
-          text: 'BORRAR TODO', 
-          style: 'destructive',
-          onPress: async () => {
-            await clearCurrentGame();
-            await loadCurrentGameData();
-          }
-        }
-      ]
-    );
-  };
-
   const handleFinalizeGame = () => {
     Alert.alert(
       'TERMINAR PARTIDA',
@@ -354,9 +336,6 @@ const PartidaActual = ({ navigate, goBack, hideTerminarButton = false }: Partida
               </TouchableOpacity>
             )}
             
-            <TouchableOpacity style={styles.clearButton} onPress={handleClearCurrentGame}>
-              <Text style={styles.clearButtonText}>BORRAR PARTIDA ACTUAL</Text>
-            </TouchableOpacity>
           </>
         )}
 
@@ -574,26 +553,6 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   finalizeButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    fontFamily: 'Roboto',
-  },
-  clearButton: {
-    backgroundColor: '#FF0000',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 8,
-  },
-  clearButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',

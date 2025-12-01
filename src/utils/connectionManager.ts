@@ -4,6 +4,14 @@ import TcpSocket from 'react-native-tcp-socket';
 import { Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
+interface ReconnectionData {
+  wasConnected: boolean;
+  role: 'server' | 'client' | 'none';
+  serverIp: string;
+  playerName: string;
+  gameState: 'waiting' | 'playing' | 'scoring';
+}
+
 
 export type GameEvent = 
   | {
@@ -102,6 +110,21 @@ export type GameEvent =
         playerName: string;
         timestamp: number;
       };
+    
+    }
+  | {
+    type: 'REQUEST_SYNC';
+    data: {
+      playerName: string;
+    };
+    }
+    | {
+      type: 'SYNC_RESPONSE';
+      data: {
+        gameState: 'waiting' | 'playing' | 'scoring';
+        connectedPlayers: string[];
+        currentGameConfig: any;
+      };
     };
 
 type EventCallback = (event: GameEvent) => void;
@@ -132,6 +155,13 @@ class ConnectionManager {
     endGameAlertEnabled: boolean;
     endGameAlertTitle: string;
   } | null = null;
+  private reconnectionData: ReconnectionData = {
+    wasConnected: false,
+    role: 'none',
+    serverIp: '',
+    playerName: '',
+    gameState: 'waiting'
+  };
   private currentRoundLetter: string = '';
   private currentRoundListName: string = '';
   private currentRoundListId: number = 0;
@@ -363,6 +393,18 @@ class ConnectionManager {
     // ========== EVENTOS DEL MASTER ==========
     if (this.isServer) {
       switch (event.type) {
+        case 'REQUEST_SYNC':
+          // Un esclavo solicita sincronización después de reconectarse
+          console.log('📡 Solicitud de sincronización de:', event.data.playerName);
+          this.sendEvent({
+            type: 'SYNC_RESPONSE',
+            data: {
+              gameState: this.gameState,
+              connectedPlayers: this.connectedPlayers,
+              currentGameConfig: this.currentGameConfig
+            }
+          });
+          break;
         case 'SCORE_SUBMIT':
           this.handleScoreSubmit(event.data);
           break;
@@ -372,6 +414,15 @@ class ConnectionManager {
     // ========== EVENTOS DEL ESCLAVO ==========
     if (!this.isServer) {
       switch (event.type) {
+        case 'SYNC_RESPONSE':
+          // Recibimos sincronización del maestro
+          console.log('📡 Sincronización recibida:', event.data);
+          this.gameState = event.data.gameState;
+          this.connectedPlayers = event.data.connectedPlayers;
+          this.currentGameConfig = event.data.currentGameConfig;
+          console.log('✅ Estado sincronizado correctamente');
+          break;
+
         case 'PLAYERS_LIST_UPDATE':
           this.connectedPlayers = event.data.players;
           break;
@@ -698,6 +749,17 @@ class ConnectionManager {
   // ========== DESCONEXIÓN ==========
   async disconnect() {
     try {
+      // Guardar datos para reconexión ANTES de desconectar
+      this.reconnectionData = {
+        wasConnected: this.connectedPlayers.length > 0,
+        role: this.getRole(),
+        serverIp: this.serverIp,
+        playerName: this.myName,
+        gameState: this.gameState
+      };
+      
+      console.log('💾 Datos de reconexión guardados:', this.reconnectionData);
+      
       // Detener heartbeat si existe
       this.stopHeartbeat();
       
@@ -732,7 +794,7 @@ class ConnectionManager {
         }
       }
 
-      // Limpiar estado
+      // Limpiar estado (pero mantener reconnectionData)
       this.connectedPlayers = [];
       this.isServer = false;
       this.gameState = 'waiting';
@@ -745,10 +807,73 @@ class ConnectionManager {
       
       // ⚠️ NO borrar eventCallbacks aquí - deben persistir entre partidas
       // Los componentes individuales gestionan su limpieza en sus useEffect cleanup
-      
+
       console.log('✅ Desconexión completa');
     } catch (error) {
       console.error('❌ Error al desconectar:', error);
+    }
+  }
+
+  saveReconnectionState() {
+    this.reconnectionData = {
+      wasConnected: this.connectedPlayers.length > 0,
+      role: this.getRole(),
+      serverIp: this.serverIp,
+      playerName: this.myName,
+      gameState: this.gameState
+    };
+    
+    console.log('💾 Datos de reconexión guardados:', this.reconnectionData);
+  }
+  
+  async attemptReconnect(): Promise<boolean> {
+    console.log('🔄 Intentando reconexión...', this.reconnectionData);
+    
+    if (!this.reconnectionData.wasConnected) {
+      console.log('⚠️ No había conexión previa, cancelando reconexión');
+      return false;
+    }
+    
+    try {
+      if (this.reconnectionData.role === 'server') {
+        // MAESTRO: reiniciar servidor
+        console.log('👑 Reconectando como MAESTRO...');
+        const started = await this.startServer(this.reconnectionData.playerName);
+        
+        if (started) {
+          console.log('✅ Servidor reiniciado correctamente');
+          this.gameState = this.reconnectionData.gameState;
+          return true;
+        }
+        return false;
+        
+      } else if (this.reconnectionData.role === 'client') {
+        // ESCLAVO: reconectar al servidor
+        console.log('🔌 Reconectando como ESCLAVO...');
+        const connected = await this.connectToDevice(
+          this.reconnectionData.serverIp,
+          this.reconnectionData.playerName
+        );
+        
+        if (connected) {
+          console.log('✅ Reconectado al servidor, solicitando sincronización...');
+          
+          // Solicitar sincronización de estado
+          await new Promise(resolve => setTimeout(resolve, 500));
+          this.sendEvent({
+            type: 'REQUEST_SYNC',
+            data: { playerName: this.reconnectionData.playerName }
+          });
+          
+          return true;
+        }
+        return false;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('❌ Error en reconexión:', error);
+      return false;
     }
   }
 
