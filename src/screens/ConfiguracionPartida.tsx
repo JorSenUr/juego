@@ -16,7 +16,7 @@ import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
 
 
 
-type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionModoPartida' | 'ConfiguracionOnline' | 'PartidaActual';
+type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionRol' | 'ConfiguracionOnline' | 'PartidaActual';
 
 interface ConfiguracionPartidaProps {
   navigate: (screen: Screen, options?: { from?: Screen }) => void;

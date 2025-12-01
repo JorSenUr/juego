@@ -12,7 +12,7 @@ import {
 import { getCurrentConfig, updateConfig } from '../utils/gameConfig';
 import { connectionManager } from '../utils/connectionManager';
 
-type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionModoPartida' | 'ConfiguracionOnline' | 'PartidaActual';
+type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionRol' | 'ConfiguracionOnline' | 'PartidaActual';
 
 interface ConfiguracionOnlineProps {
   navigate: (screen: Screen, options?: { from?: Screen }) => void;

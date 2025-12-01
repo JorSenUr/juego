@@ -14,26 +14,22 @@ import Puntuaciones from './src/screens/Puntuaciones';
 import ReglasJuego from './src/screens/ReglasJuego';
 import ConfiguracionPartida from './src/screens/ConfiguracionPartida';
 import PartidaActual from './src/screens/PartidaActual';
+import SeleccionRol from './src/screens/SeleccionRol'; // <--- IMPORTADO
+import ConfiguracionOnline from './src/screens/ConfiguracionOnline';
 import { initializeConfig, getCurrentConfig, updateConfig } from './src/utils/gameConfig';
-import { isGameInProgress, loadCurrentGame } from './src/data/storage';
+import { isGameInProgress, loadCurrentGame, finalizeCurrentGame } from './src/data/storage';
 import { AppState } from 'react-native';
 import { soundManager } from './src/utils/soundManager';
 import { connectionManager } from './src/utils/connectionManager';
-import { finalizeCurrentGame } from './src/data/storage';
-import SeleccionModoPartida from './src/screens/SeleccionModoPartida';
-import ConfiguracionOnline from './src/screens/ConfiguracionOnline';
 
-
-
-
-type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionModoPartida' | 'ConfiguracionOnline' | 'PartidaActual';
+// Definición de pantallas actualizada (Sin SeleccionModoPartida, con SeleccionRol)
+type Screen = 'MenuPrincipal' | 'Configuracion' | 'PantallaJuego' | 'Puntuaciones' | 'ReglasJuego' | 'ConfiguracionPartida' | 'SeleccionRol' | 'ConfiguracionOnline' | 'PartidaActual';
 type GameMode = 'waiting' | 'playing' | 'scoring' | 'offlineScoring' | 'reviewing';
 
 const App = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>('MenuPrincipal');
   const [gameMode, setGameMode] = useState<GameMode>('waiting');
   const [screenTitle, setScreenTitle] = useState<string>('Scattergories');
-  // Recordar desde dónde se fue a Configuración para volver correctamente
   const [configReturnScreen, setConfigReturnScreen] = useState<Screen>('MenuPrincipal');
   const [gameReturnScreen, setGameReturnScreen] = useState<Screen>('MenuPrincipal');
 
@@ -44,7 +40,6 @@ const App = () => {
       await connectionManager.disconnect();
         await updateConfig({ 
         onlineGameInProgress: false,
-        
       });
     };
     init();
@@ -72,10 +67,11 @@ const App = () => {
     };
   }, []);
 
-  // ========== LISTENER GLOBAL PARA GAME FINALIZE==========
+  // ========== LISTENER GLOBAL PARA GAME FINALIZE (Restaurado con logs y textos originales) ==========
   useEffect(() => {
     const handleEvents = async (event: any) => {
-      //console.log(`👂 App.tsx listener recibió: ${event.type}`);
+      // LOGS ORIGINALES RESTAURADOS
+      // console.log(`👂 App.tsx listener recibió: ${event.type}`);
 
       if (event.type === 'GAME_FINALIZE') {
         const config = getCurrentConfig();
@@ -89,9 +85,9 @@ const App = () => {
         
         await finalizeCurrentGame();
         await connectionManager.disconnect();
-        //connectionManager.onEvent(handleEvents);
         await updateConfig({ onlineGameInProgress: false });
         
+        // TEXTO ORIGINAL RESTAURADO
         Alert.alert('Partida Terminada', 'El organizador ha terminado la partida. Tus puntuaciones se han guardado.', [
           { text: 'OK', onPress: () => navigate('MenuPrincipal') }
         ]);
@@ -100,6 +96,7 @@ const App = () => {
       if (event.type === 'PLAYER_LEFT') {
         const config = getCurrentConfig();
         
+        // LOGS ORIGINALES RESTAURADOS
         console.log(`🔍 PLAYER_LEFT - isMaster: ${config.isMasterDevice}, onlineGame: ${config.onlineGameInProgress}, playerName: ${event.data.playerName}`);
 
         // Solo procesar si es maestro y hay partida online
@@ -110,6 +107,7 @@ const App = () => {
           
           // Si solo queda el maestro (1 jugador)
           if (remainingPlayers.length === 1) {
+            // TEXTO ORIGINAL RESTAURADO
             Alert.alert(
               'Último jugador desconectado',
               `${event.data.playerName} ha abandonado la partida. Eres el único jugador restante.\n\n¿Quieres terminar la partida?`,
@@ -147,11 +145,11 @@ const App = () => {
     };
     
     connectionManager.onEvent(handleEvents);
-    console.log('✅ Listener de App.tsx registrado');
+    console.log('✅ Listener de App.tsx registrado'); // LOG RESTAURADO
     
     return () => {
       connectionManager.removeEventListener(handleEvents);
-      console.log('❌ Listener de App.tsx eliminado');
+      console.log('❌ Listener de App.tsx eliminado'); // LOG RESTAURADO
     };
   }, []);
 
@@ -170,7 +168,8 @@ const App = () => {
   };
 
   const goBack = async () => {
-    console.log('🎮 Current gameMode:', gameMode, 'Screen:', currentScreen);
+    console.log('🎮 Current gameMode:', gameMode, 'Screen:', currentScreen); // LOG RESTAURADO
+
     // MenuPrincipal: nunca tiene botón atrás
     if (currentScreen === 'MenuPrincipal') {
       return;
@@ -185,18 +184,16 @@ const App = () => {
     // PantallaJuego: depende del modo
     if (currentScreen === 'PantallaJuego') {
       if (gameMode === 'scoring') {
-        // No hacer nada, el botón no debe estar visible
         return;
       }
       
       if (gameMode === 'offlineScoring') {
-        // Volver a scoring
         setGameMode('scoring');
         return;
       }
       
       if (gameMode === 'playing') {
-        // Mostrar warning cuando el temporizador está corriendo
+        // TEXTO ORIGINAL RESTAURADO
         Alert.alert(
           '¿ABANDONAR RONDA?',
           '¿Estás seguro de que quieres abandonar la ronda actual?',
@@ -211,7 +208,6 @@ const App = () => {
         return;
       }
       
-      // Si es 'waiting', ir directamente a MenuPrincipal sin warning
       setCurrentScreen('MenuPrincipal');
       return;
     }
@@ -223,10 +219,21 @@ const App = () => {
       return;
     }
 
-    // ConfiguracionPartida y ConfiguracionOnline: volver a SeleccionModoPartida
-    if (currentScreen === 'ConfiguracionPartida' || currentScreen === 'ConfiguracionOnline') {
-      setCurrentScreen('SeleccionModoPartida');
+    // Lógica nueva de retorno para SeleccionRol
+    if (currentScreen === 'SeleccionRol') {
+      setCurrentScreen('MenuPrincipal');
       return;
+    }
+
+    if (currentScreen === 'ConfiguracionPartida') {
+        setCurrentScreen('MenuPrincipal');
+        return;
+    }
+
+    if (currentScreen === 'ConfiguracionOnline') {
+        // Vuelve a elegir rol si cancelas la conexión
+        setCurrentScreen('SeleccionRol');
+        return;
     }
 
     // Todas las demás pantallas: ir a MenuPrincipal
@@ -248,39 +255,29 @@ const App = () => {
       }
       case 'Puntuaciones': return 'Puntuaciones';
       case 'ReglasJuego': return 'Reglas del Juego';
-      case 'ConfiguracionPartida': return 'Configuración inicial';
-      case 'SeleccionModoPartida': return 'Nueva Partida';           // ← AÑADIR
-      case 'ConfiguracionOnline': return 'Partida Online';           // ← AÑADIR
+      case 'ConfiguracionPartida': return 'Juego Local';
+      case 'SeleccionRol': return 'Modo Online'; // TITULO NUEVO
+      case 'ConfiguracionOnline': return 'Partida Online';
       case 'PartidaActual': return 'Partida Actual';
       default: return 'Scattergories';
     }
   };
 
   const shouldShowBackButton = (): boolean => {
-    // MenuPrincipal: nunca
-    if (currentScreen === 'MenuPrincipal') {
-      return false;
-    }
-
+    if (currentScreen === 'MenuPrincipal') return false;
+    
     const config = getCurrentConfig();
 
-    // Ocultar botón "Atrás" durante playing
     if (currentScreen === 'PantallaJuego' && gameMode === 'playing') return false;
-    
     if (currentScreen === 'PantallaJuego' && gameMode === 'scoring') return false;
-
     if (currentScreen === 'PantallaJuego' && gameMode === 'offlineScoring' && config.paperMode) return false;
 
-    // PantallaJuego: mostrar en todos los modos EXCEPTO scoring
     if (currentScreen === 'PantallaJuego') {
       return gameMode !== 'scoring';
     }
+    
+    if (currentScreen === 'PartidaActual') return false;
 
-    if (currentScreen === 'PartidaActual') {
-      return false;
-    }
-
-    // Todas las demás pantallas: sí
     return true;
   };
 
@@ -293,14 +290,14 @@ const App = () => {
         
         {currentScreen === 'Configuracion' && <Configuracion {...navigationProps} />}
         
-        {/* ConfiguracionPartida se mantiene montada si volvemos de Configuracion */}
         {(currentScreen === 'ConfiguracionPartida' || configReturnScreen === 'ConfiguracionPartida') && (
           <View style={{ display: currentScreen === 'ConfiguracionPartida' ? 'flex' : 'none', flex: 1 }}>
             <ConfiguracionPartida {...navigationProps} />
           </View>
         )}
         
-        {currentScreen === 'SeleccionModoPartida' && <SeleccionModoPartida {...navigationProps} />} 
+        {/* Renderizado de SeleccionRol añadido */}
+        {currentScreen === 'SeleccionRol' && <SeleccionRol {...navigationProps} />} 
         
         {(currentScreen === 'ConfiguracionOnline' || configReturnScreen === 'ConfiguracionOnline') && (
           <View style={{ display: currentScreen === 'ConfiguracionOnline' ? 'flex' : 'none', flex: 1 }}>
@@ -313,9 +310,7 @@ const App = () => {
         )}
         
         {currentScreen === 'Puntuaciones' && <Puntuaciones {...navigationProps} />}
-        
         {currentScreen === 'ReglasJuego' && <ReglasJuego {...navigationProps} />}
-        
         {currentScreen === 'PartidaActual' && <PartidaActual {...navigationProps} />}
       </>
     );
