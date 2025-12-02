@@ -10,6 +10,12 @@ interface ReconnectionData {
   serverIp: string;
   playerName: string;
   gameState: 'waiting' | 'playing' | 'scoring';
+  currentGameConfig: any | null;
+  currentRoundLetter: string;
+  currentRoundListName: string;
+  currentRoundListId: number;
+  currentRoundVersionId: string;
+  expectedPlayers: string[];
 }
 
 
@@ -125,6 +131,14 @@ export type GameEvent =
         connectedPlayers: string[];
         currentGameConfig: any;
       };
+    }
+  | {
+    type: 'SERVER_GOING_AWAY';
+      data: {};
+    }
+  | {
+      type: 'SHOW_RECONNECTION_MODAL';
+      data: {};
     };
 
 type EventCallback = (event: GameEvent) => void;
@@ -147,6 +161,9 @@ class ConnectionManager {
   private lastHeartbeatReceived: Map<string, number> = new Map();
   private readonly HEARTBEAT_INTERVAL = 10000; // 10 segundos
   private readonly HEARTBEAT_TIMEOUT = 30000; // 30 segundos
+  private scoreAlreadySubmitted: boolean = false;
+  private expectedPlayersAfterReconnect: string[] = [];
+  private isReconnecting: boolean = false;
   private currentGameConfig: {
     paperMode: boolean;
     warningEnabled: boolean;
@@ -155,12 +172,19 @@ class ConnectionManager {
     endGameAlertEnabled: boolean;
     endGameAlertTitle: string;
   } | null = null;
+
   private reconnectionData: ReconnectionData = {
     wasConnected: false,
     role: 'none',
     serverIp: '',
     playerName: '',
-    gameState: 'waiting'
+    gameState: 'waiting',
+    currentGameConfig: null,
+    currentRoundLetter: '',
+    currentRoundListName: '',
+    currentRoundListId: 0,
+    currentRoundVersionId: '',
+    expectedPlayers: []
   };
   private currentRoundLetter: string = '';
   private currentRoundListName: string = '';
@@ -194,6 +218,16 @@ class ConnectionManager {
   // ========== SERVIDOR (MAESTRO) ==========
   async startServer(playerName: string): Promise<boolean> {
     try {
+      // Limpiar sockets zombies de conexión anterior
+      this.clients.forEach((socket) => {
+        try { 
+          socket.destroy(); 
+        } catch(e) {
+          // Ignorar errores al cerrar sockets zombies
+        }
+      });
+      this.clients.clear();
+      
       this.isServer = true;
       this.myName = playerName;
       this.gameState = 'waiting';
@@ -281,10 +315,12 @@ class ConnectionManager {
         if (!resolved) {
           resolved = true;
           console.log('⏱️ Timeout: No se pudo conectar en 5 segundos');
-          if (this.clientSocket) {
-            this.clientSocket.destroy();
-            this.clientSocket = null;
-          }
+          // Cerrar socket anterior si existe (remover listeners para evitar triggers fantasma)
+        if (this.clientSocket) {
+          this.clientSocket.removeAllListeners();
+          this.clientSocket.destroy();
+          this.clientSocket = null;
+        }
           resolve(false);
         }
       }, 5000);
@@ -292,6 +328,7 @@ class ConnectionManager {
       try {
         this.isServer = false;
         this.myName = playerName;
+        this.serverIp = serverIp;
         
         this.clientSocket = TcpSocket.createConnection(
           {
@@ -311,7 +348,9 @@ class ConnectionManager {
               
               // Listener permanente de error (solo después de conectar)
               this.clientSocket.on('error', (error: any) => {
-                console.error('❌ Error en conexión establecida:', error);
+                if (!this.isReconnecting) {
+                  console.error('❌ Error en conexión establecida:', error);
+                }
               });
               
               resolve(true);
@@ -324,7 +363,10 @@ class ConnectionManager {
           if (!resolved) {
             resolved = true;
             clearTimeout(timeout);
-            console.error('❌ Error en conexión:', error);
+            // Solo loguear si NO estamos en proceso de reconexión (error inesperado)
+            if (!this.isReconnecting) {
+              console.error('❌ Error en conexión:', error);
+            }
             if (this.clientSocket) {
               this.clientSocket.destroy();
               this.clientSocket = null;
@@ -358,6 +400,18 @@ class ConnectionManager {
 
         this.clientSocket.on('close', () => {
           console.log('🔌 Desconectado del servidor');
+          
+          // NO disparar reconexión si ya hay una en curso
+          if (this.isReconnecting) {
+            console.log('⚠️ Reconexión ya en curso, ignorando close...');
+            return;
+          }
+          
+          // Intentar reconexión automática si había partida en curso
+          if (this.gameState !== 'waiting') {
+            console.log('🔄 Conexión perdida durante partida, intentando reconectar...');
+            this.attemptAutoReconnect();
+          }
         });
         
       } catch (error) {
@@ -433,6 +487,7 @@ class ConnectionManager {
           
         case 'ROUND_START':
           this.gameState = 'playing';
+          this.scoreAlreadySubmitted = false; // Resetear para nueva ronda
           break;
           
         case 'TIMER_END':
@@ -446,11 +501,49 @@ class ConnectionManager {
         case 'GAME_FINALIZE':
           // El listener global manejará la lógica
           break;
+
+        case 'SERVER_GOING_AWAY':
+          console.log('📢 Servidor notificó que se va...');
+          
+          // Marcar reconexión antes de cerrar socket (evita que on('close') dispare otro)
+          const wasPlaying = this.gameState === 'playing';
+          if (wasPlaying) {
+            this.isReconnecting = true;
+          }
+          
+          // Cerrar socket actual
+          if (this.clientSocket) {
+            try {
+              this.clientSocket.destroy();
+            } catch (e) {}
+            this.clientSocket = null;
+          }
+          
+          if (wasPlaying) {
+            // En playing: reintentos automáticos cada 4s
+            console.log('🔄 Estado playing: iniciando reintentos automáticos...');
+            setTimeout(() => {
+              this.isReconnecting = false; // Permitir que attemptAutoReconnect tome el control
+              this.attemptAutoReconnect();
+            }, 4000);
+          } else {
+            // En waiting/scoring: mostrar modal inmediatamente
+            console.log('📋 Estado no-playing: mostrando modal de reconexión...');
+            this.showReconnectionModal();
+          }
+          break;
       }
     }
   }
 
   private handlePlayerJoined(playerName: string) {
+      // Quitar de expectedPlayersAfterReconnect si estaba ahí
+      const expectedIndex = this.expectedPlayersAfterReconnect.indexOf(playerName);
+      if (expectedIndex > -1) {
+        this.expectedPlayersAfterReconnect.splice(expectedIndex, 1);
+        console.log(`✅ ${playerName} reconectó (era esperado). Quedan esperando: ${this.expectedPlayersAfterReconnect.length}`);
+      }
+
       // Si NO hay partida iniciada (no se ha enviado GAME_START)
       if (this.currentGameConfig === null) {
         if (!this.connectedPlayers.includes(playerName)) {
@@ -460,9 +553,18 @@ class ConnectionManager {
           console.log('✅ Jugador añadido:', playerName);
         }
       } else {
-      // Ya hay partida iniciada (se envió GAME_START) → reconexión
-      if (!this.pendingReconnections.includes(playerName)) {
-        this.pendingReconnections.push(playerName);
+        // Ya hay partida iniciada (se envió GAME_START) → reconexión
+        
+        // Añadir a connectedPlayers si no está
+        if (!this.connectedPlayers.includes(playerName)) {
+          this.connectedPlayers.push(playerName);
+        }
+        
+        // Añadir a pendingReconnections si no está
+        if (!this.pendingReconnections.includes(playerName)) {
+          this.pendingReconnections.push(playerName);
+        }
+        
         this.lastHeartbeatReceived.set(playerName, Date.now());
         this.broadcastPlayersList();
         console.log('⏳ Reconexión pendiente:', playerName);
@@ -479,7 +581,6 @@ class ConnectionManager {
           console.log(`⏸️ ${playerName} esperará hasta la próxima ronda (maestro en ${this.gameState})`);
         }
       }
-    }
   }
 
   private handlePlayerLeft(playerName: string) {
@@ -527,7 +628,12 @@ class ConnectionManager {
     
     console.log('✅ Puntuación recibida de:', data.playerName);
     
-    if (this.submittedScores.size === this.connectedPlayers.length) {
+    // Calcular cuántos jugadores se esperan (conectados + esperando reconexión)
+    const totalExpected = this.connectedPlayers.length + this.expectedPlayersAfterReconnect.length;
+    
+    console.log(`📊 Puntuaciones: ${this.submittedScores.size}/${totalExpected} (conectados: ${this.connectedPlayers.length}, esperando: ${this.expectedPlayersAfterReconnect.length})`);
+    
+    if (this.submittedScores.size === totalExpected) {
       this.sendAllScores();
     }
   }
@@ -638,6 +744,7 @@ class ConnectionManager {
   // ========== FUNCIONES PÚBLICAS ==========
   updateGameState(state: 'waiting' | 'playing' | 'scoring') {
     this.gameState = state;
+    console.log(`🎮 ConnectionManager gameState actualizado a: ${state}`);
   }
 
   startGame(gameConfig: {
@@ -666,6 +773,16 @@ class ConnectionManager {
     timerDuration: number;
   }) {
     this.gameState = 'playing';
+    
+    // Guardar datos de la ronda actual
+    this.currentRoundLetter = data.letter;
+    this.currentRoundListName = data.listName;
+    this.currentRoundListId = data.listId;
+    this.currentRoundVersionId = data.versionId;
+    // Resetear flag de puntuación para nueva ronda
+    this.scoreAlreadySubmitted = false;
+    // Limpiar jugadores esperados de reconexión anterior
+    this.expectedPlayersAfterReconnect = [];
     
     // Enviar GAME_START a jugadores que estaban esperando reconexión
     if (this.pendingReconnections.length > 0) {
@@ -699,6 +816,13 @@ class ConnectionManager {
   }
 
   submitScore(playerName: string, score: number, answers: string[]) {
+    // Evitar envío duplicado
+    if (this.scoreAlreadySubmitted) {
+      console.log('⚠️ Puntuación ya enviada, ignorando duplicado');
+      return;
+    }
+    this.scoreAlreadySubmitted = true;
+    
     if (this.isServer) {
       this.handleScoreSubmit({ playerName, score, answers });
     } else {
@@ -714,6 +838,71 @@ class ConnectionManager {
       console.log('⚠️ Forzando envío de puntuaciones con jugadores faltantes');
       this.sendAllScores();
     }
+  }
+
+  notifyServerGoingAway() {
+    if (this.isServer) {
+      console.log('📢 Notificando a esclavos que el servidor se va...');
+      this.sendEvent({
+        type: 'SERVER_GOING_AWAY',
+        data: {}
+      });
+    }
+  }
+
+  closeServerForBackground() {
+    if (this.isServer && this.server) {
+      console.log('🛑 Cerrando servidor para background...');
+      
+      // Cerrar todos los sockets de clientes
+      this.clients.forEach((socket, playerName) => {
+        try {
+          socket.destroy();
+        } catch (e) {}
+      });
+      this.clients.clear();
+      
+      // Cerrar servidor
+      try {
+        this.server.close();
+      } catch (e) {}
+      this.server = null;
+      
+      // Detener heartbeat
+      this.stopHeartbeat();
+      
+      console.log('✅ Servidor cerrado para background');
+    }
+  }
+
+  async manualReconnect(): Promise<boolean> {
+    console.log('🔄 Intento de reconexión manual...');
+    const connected = await this.connectToDevice(this.serverIp, this.myName);
+    
+    if (connected) {
+      console.log('✅ Reconexión manual exitosa');
+      // Mantener protección contra desconexiones rápidas
+      this.isReconnecting = true;
+      setTimeout(() => {
+        this.isReconnecting = false;
+      }, 3000);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      this.sendEvent({
+        type: 'REQUEST_SYNC',
+        data: { playerName: this.myName }
+      });
+      return true;
+    }
+    
+    console.log('❌ Reconexión manual fallida');
+    return false;
+  }
+
+  showReconnectionModal() {
+    this.eventCallbacks.forEach(callback => callback({
+      type: 'SHOW_RECONNECTION_MODAL',
+      data: {}
+    }));
   }
 
   getServerIp(): string {
@@ -755,7 +944,13 @@ class ConnectionManager {
         role: this.getRole(),
         serverIp: this.serverIp,
         playerName: this.myName,
-        gameState: this.gameState
+        gameState: this.gameState,
+        currentGameConfig: this.currentGameConfig,
+        currentRoundLetter: this.currentRoundLetter,
+        currentRoundListName: this.currentRoundListName,
+        currentRoundListId: this.currentRoundListId,
+        currentRoundVersionId: this.currentRoundVersionId,
+        expectedPlayers: [...this.connectedPlayers]
       };
       
       console.log('💾 Datos de reconexión guardados:', this.reconnectionData);
@@ -804,6 +999,12 @@ class ConnectionManager {
       this.serverIp = '';
       this.myName = '';
       this.currentGameConfig = null;
+      this.currentRoundLetter = '';
+      this.currentRoundListName = '';
+      this.currentRoundListId = 0;
+      this.currentRoundVersionId = '';
+      this.expectedPlayersAfterReconnect = [];
+      this.isReconnecting = false;
       
       // ⚠️ NO borrar eventCallbacks aquí - deben persistir entre partidas
       // Los componentes individuales gestionan su limpieza en sus useEffect cleanup
@@ -815,16 +1016,22 @@ class ConnectionManager {
   }
 
   saveReconnectionState() {
-    this.reconnectionData = {
-      wasConnected: this.connectedPlayers.length > 0,
-      role: this.getRole(),
-      serverIp: this.serverIp,
-      playerName: this.myName,
-      gameState: this.gameState
-    };
-    
-    console.log('💾 Datos de reconexión guardados:', this.reconnectionData);
-  }
+  this.reconnectionData = {
+    wasConnected: this.connectedPlayers.length > 0,
+    role: this.getRole(),
+    serverIp: this.serverIp,
+    playerName: this.myName,
+    gameState: this.gameState,
+    currentGameConfig: this.currentGameConfig,
+    currentRoundLetter: this.currentRoundLetter,
+    currentRoundListName: this.currentRoundListName,
+    currentRoundListId: this.currentRoundListId,
+    currentRoundVersionId: this.currentRoundVersionId,
+    expectedPlayers: [...this.connectedPlayers]
+  };
+  
+  console.log('💾 Datos de reconexión guardados:', this.reconnectionData);
+}
   
   async attemptReconnect(): Promise<boolean> {
     console.log('🔄 Intentando reconexión...', this.reconnectionData);
@@ -843,6 +1050,18 @@ class ConnectionManager {
         if (started) {
           console.log('✅ Servidor reiniciado correctamente');
           this.gameState = this.reconnectionData.gameState;
+          this.currentGameConfig = this.reconnectionData.currentGameConfig;
+          this.currentRoundLetter = this.reconnectionData.currentRoundLetter;
+          this.currentRoundListName = this.reconnectionData.currentRoundListName;
+          this.currentRoundListId = this.reconnectionData.currentRoundListId;
+          this.currentRoundVersionId = this.reconnectionData.currentRoundVersionId;
+          
+          // Guardar jugadores esperados (sin el maestro, ya está en connectedPlayers)
+          this.expectedPlayersAfterReconnect = this.reconnectionData.expectedPlayers.filter(
+            p => p !== this.myName
+          );
+          console.log('⏳ Esperando reconexión de:', this.expectedPlayersAfterReconnect);
+          console.log('✅ Estado de partida restaurado');
           return true;
         }
         return false;
@@ -874,6 +1093,53 @@ class ConnectionManager {
     } catch (error) {
       console.error('❌ Error en reconexión:', error);
       return false;
+    }
+  }
+
+  // ========== RECONEXIÓN AUTOMÁTICA DEL ESCLAVO ==========
+  private async attemptAutoReconnect() {
+    // Evitar múltiples bucles de reconexión
+    if (this.isReconnecting) {
+      console.log('⚠️ Ya hay una reconexión en curso, ignorando...');
+      return;
+    }
+    
+    this.isReconnecting = true;
+    const retryDelay = 4000;
+    
+    while (this.gameState === 'playing' && this.isReconnecting) {
+      console.log('🔄 Intento de reconexión automática...');
+      
+      try {
+        const connected = await this.connectToDevice(this.serverIp, this.myName);
+        
+        if (connected) {
+          console.log('✅ Reconexión automática exitosa');
+          // Mantener isReconnecting = true por 3 segundos más para ignorar desconexiones rápidas
+          setTimeout(() => {
+            this.isReconnecting = false;
+          }, 3000);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          this.sendEvent({
+            type: 'REQUEST_SYNC',
+            data: { playerName: this.myName }
+          });
+          return;
+        }
+      } catch (error) {
+        console.error('❌ Error en intento de reconexión:', error);
+      }
+      
+      // Esperar antes del siguiente intento
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+    
+    this.isReconnecting = false;
+    
+    // Si salimos del bucle (ya no estamos en playing), mostrar modal
+    if (this.gameState !== 'playing') {
+      console.log('📋 Timer terminó sin reconexión, mostrando modal...');
+      this.showReconnectionModal();
     }
   }
 

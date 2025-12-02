@@ -479,6 +479,7 @@ const handleLetterContainerPress = () => {
     // Modo papel y boli: ir a offlineScoring
     if (config.paperMode) {
       setGameMode('offlineScoring');
+      connectionManager.updateGameState('scoring');
       if (config.endGameAlertEnabled) {
         Alert.alert(
           config.endGameAlertTitle,
@@ -491,6 +492,7 @@ const handleLetterContainerPress = () => {
     
     // Modo normal: ir a scoring por categorías
     setGameMode('scoring');
+    connectionManager.updateGameState('scoring');
     if (config.endGameAlertEnabled) {
       Alert.alert(
         config.endGameAlertTitle,

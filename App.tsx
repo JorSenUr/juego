@@ -65,7 +65,15 @@ const App = () => {
         const config = getCurrentConfig();
         if (config.onlineGameInProgress && connectionManager.isConnected()) {
           console.log('💾 App va a background, guardando datos de reconexión...');
-          connectionManager.saveReconnectionState();
+          
+          // Si somos maestro, avisar a los esclavos y cerrar servidor
+          if (config.isMasterDevice) {
+            connectionManager.notifyServerGoingAway();
+            connectionManager.saveReconnectionState();
+            connectionManager.closeServerForBackground();
+          } else {
+            connectionManager.saveReconnectionState();
+          }
         }
       } else if (nextAppState === 'active') {
         soundManager.unmuteAll();
@@ -177,6 +185,45 @@ const App = () => {
               { text: 'OK' }
             ]);
           }
+        }
+      }
+
+      if (event.type === 'SHOW_RECONNECTION_MODAL') {
+        const config = getCurrentConfig();
+        
+        // Solo mostrar si somos esclavo
+        if (!config.isMasterDevice && config.onlineGameInProgress) {
+          Alert.alert(
+            'Conexión perdida',
+            'El organizador se ha desconectado de la partida.\n\nPídele que te avise cuando esté listo de nuevo.',
+            [
+              {
+                text: 'REINTENTAR',
+                onPress: async () => {
+                  const reconnected = await connectionManager.manualReconnect();
+                  if (reconnected) {
+                    Alert.alert('Reconectado', 'Conexión restablecida correctamente.');
+                  } else {
+                    // Mostrar el modal de nuevo
+                    connectionManager.showReconnectionModal();
+                  }
+                }
+              },
+              {
+                text: 'ABANDONAR PARTIDA',
+                style: 'destructive',
+                onPress: async () => {
+                  await finalizeCurrentGame();
+                  await connectionManager.disconnect();
+                  await updateConfig({ onlineGameInProgress: false });
+                  Alert.alert('Partida abandonada', 'Tus rondas se han guardado en el historial.', [
+                    { text: 'OK', onPress: () => navigate('MenuPrincipal') }
+                  ]);
+                }
+              }
+            ],
+            { cancelable: false }
+          );
         }
       }
     };
